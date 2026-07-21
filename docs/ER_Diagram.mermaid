@@ -1,0 +1,119 @@
+erDiagram
+
+    USER {
+        UUID id PK
+        string name
+        string email
+        string phone
+        string password
+        enum role
+        datetime created_at
+        datetime updated_at
+    }
+
+    PATIENT {
+        UUID id PK
+        UUID user_id FK
+        date dob
+        string gender
+        float weight
+        string blood_group
+    }
+
+    DOCTOR {
+        UUID id PK
+        UUID user_id FK
+        string specialization
+        int experience
+        string qualification
+        string clinic_name
+        decimal consultation_fee
+        float rating
+        string bio
+    }
+
+    SLOT {
+        UUID id PK
+        UUID doctor_id FK
+        date slot_date
+        time start_time
+        time end_time
+        boolean is_available
+    }
+
+    APPOINTMENT {
+        UUID id PK
+        UUID patient_id FK
+        UUID doctor_id FK
+        UUID slot_id FK
+        date appointment_date
+        enum consultation_type
+        enum status
+        int token_number
+        text notes
+        datetime created_at
+    }
+
+    PAYMENT {
+        UUID id PK
+        UUID appointment_id FK
+        decimal amount
+        string payment_method
+        enum status
+        string transaction_id
+        datetime paid_at
+    }
+
+    NOTIFICATION {
+        UUID id PK
+        UUID user_id FK
+        string title
+        text message
+        boolean is_read
+        datetime created_at
+    }
+
+    REVIEW {
+        UUID id PK
+        UUID appointment_id FK
+        UUID patient_id FK
+        int doctor_rating
+        int clinic_rating
+        int waiting_rating
+        text comment
+    }
+
+    FAMILY_MEMBER {
+        UUID id PK
+        UUID patient_id FK
+        string name
+        string relationship
+        string gender
+        int age
+    }
+
+    SUPPORT_TICKET {
+        UUID id PK
+        UUID patient_id FK
+        string subject
+        text description
+        enum status
+        datetime created_at
+    }
+
+    USER ||--|| PATIENT : "is"
+    USER ||--|| DOCTOR : "is"
+
+    DOCTOR ||--o{ SLOT : creates
+
+    PATIENT ||--o{ APPOINTMENT : books
+    DOCTOR ||--o{ APPOINTMENT : attends
+    SLOT ||--|| APPOINTMENT : scheduled_for
+
+    APPOINTMENT ||--o| PAYMENT : payment
+    APPOINTMENT ||--o| REVIEW : feedback
+
+    USER ||--o{ NOTIFICATION : receives
+
+    PATIENT ||--o{ FAMILY_MEMBER : manages
+    PATIENT ||--o{ SUPPORT_TICKET : raises
