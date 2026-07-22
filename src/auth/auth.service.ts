@@ -18,24 +18,26 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-async signup(dto: SignupDto) {
+  async signup(dto: SignupDto) {
+    if (!dto || !dto.email || !dto.password) {
+      throw new BadRequestException('Please provide all required fields (email, password, etc.)');
+    }
 
-  if (!dto || !dto.email || !dto.password) {
-    throw new BadRequestException('Please provide all required fields (email, password, etc.)');
-  }
+    const existingUser = await this.usersService.findByEmail(dto.email);
 
-  const existingUser = this.usersService.findByEmail(dto.email);
-
-  if (existingUser) {
-    throw new BadRequestException('Email already exists');
-  }
+    if (existingUser) {
+      throw new BadRequestException('Email already exists');
+    }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-    const user = this.usersService.create({
+    // Convert role to uppercase to match the Postgres enum 'DOCTOR' / 'PATIENT'
+    const role = dto.role ? (dto.role.toUpperCase() as any) : undefined;
+
+    const user = await this.usersService.create({
       ...dto,
       password: hashedPassword,
-      id: 0,
+      ...(role && { role }),
     });
 
     return {
@@ -45,26 +47,26 @@ async signup(dto: SignupDto) {
   }
 
   async login(dto: LoginDto) {
-  const user = this.usersService.findByEmail(dto.email);
+    const user = await this.usersService.findByEmail(dto.email);
 
-  if (!user) {
-    throw new UnauthorizedException('Invalid credentials');
-  }
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
-  const isMatch = await bcrypt.compare(dto.password, user.password);
+    const isMatch = await bcrypt.compare(dto.password, user.password);
 
-  if (!isMatch) {
-    throw new UnauthorizedException('Invalid credentials');
-  }
+    if (!isMatch) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
-  const payload = {
-    sub: user.id,
-    email: user.email,
-    role: user.role,
-  };
+    const payload = {
+  sub: user.id,
+  email: user.email,
+  role: user.role,
+};
 
-  return {
-    access_token: await this.jwtService.signAsync(payload),
-  };
+return {
+  access_token: this.jwtService.sign(payload),
+};
 }
 }

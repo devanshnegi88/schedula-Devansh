@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuthModule } from './auth/auth.module';
@@ -7,26 +7,31 @@ import { UsersModule } from './users/users.module';
 import { DoctorModule } from './doctor/doctor.module';
 import { PatientModule } from './patient/patient.module';
 
-import { User } from './users/user.entity';
-
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
 
-    // TypeOrmModule.forRoot({
-    //   type: 'postgres',
-    //   host: 'localhost',
-    //   port: 5432,
-    //   username: 'postgres',
-    //   password: 'postgres',
-    //   database: 'schedula',
+    TypeOrmModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        type: 'postgres',
+        host: config.getOrThrow('DATABASE_HOST'),
+        port: Number(config.getOrThrow('DATABASE_PORT')),
+        username: config.getOrThrow('DATABASE_USER'),
+        password: config.getOrThrow('DATABASE_PASSWORD'),
+        database: config.getOrThrow('DATABASE_NAME'),
 
-    //   entities: [User],
+        autoLoadEntities: true,
+        synchronize: true,
+        logging: true,
 
-    //   synchronize: true,
-    // }),
+        ssl: {
+          rejectUnauthorized: false,
+        },
+      }),
+    }),
 
     AuthModule,
     UsersModule,
