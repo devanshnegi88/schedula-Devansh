@@ -1,4 +1,14 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToOne,
+} from 'typeorm';
+
+import { Doctor } from '../doctor/doctor.entity';
+import { Patient } from '../patient/patient.entity';
 
 export enum Role {
   DOCTOR = 'DOCTOR',
@@ -25,6 +35,12 @@ export class User {
     default: Role.PATIENT,
   })
   role: Role;
+
+  @OneToOne(() => Doctor, (doctor) => doctor.user)
+  doctorProfile: Doctor;
+
+  @OneToOne(() => Patient, (patient) => patient.user)
+  patientProfile: Patient;
 
   @CreateDateColumn()
   createdAt: Date;
