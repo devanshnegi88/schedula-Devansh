@@ -8,11 +8,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { RecurringAvailability } from './entities/recurring-availability.entity';
+import { SchedulingType } from './entities/recurring-availability.entity';
 import { Doctor } from '../doctor/doctor.entity';
 
 import { CreateRecurringAvailabilityDto } from './dto/create-recurring-availability.dto';
 import { UpdateRecurringAvailabilityDto } from './dto/update-recurring-availability.dto';
-import { Day } from '../enums/day.enum';
 
 @Injectable()
 export class RecurringAvailabilityService {
@@ -43,29 +43,27 @@ export class RecurringAvailabilityService {
       throw new NotFoundException('Doctor not found');
     }
 
-    // Validate time range
     if (dto.startTime >= dto.endTime) {
       throw new BadRequestException(
         'Start time must be before end time',
       );
     }
 
-    // Check overlapping slots
-const existing = await this.recurringRepository.find({
-  where: {
-    doctor: {
-      user: {
-        id: doctorId,
+    const existing = await this.recurringRepository.find({
+      where: {
+        doctor: {
+          user: {
+            id: doctorId,
+          },
+        },
+        day: dto.day,
       },
-    },
-    day: dto.day,
-  },
-  relations: {
-    doctor: {
-      user: true,
-    },
-  },
-});
+      relations: {
+        doctor: {
+          user: true,
+        },
+      },
+    });
 
     for (const slot of existing) {
       const overlap =
@@ -79,7 +77,6 @@ const existing = await this.recurringRepository.find({
       }
     }
 
-    // Duplicate check
     const duplicate = await this.recurringRepository.findOne({
       where: {
         doctor: {
@@ -92,8 +89,8 @@ const existing = await this.recurringRepository.find({
         endTime: dto.endTime,
       },
       relations: {
-  doctor: true,
-}
+        doctor: true,
+      },
     });
 
     if (duplicate) {
@@ -102,15 +99,63 @@ const existing = await this.recurringRepository.find({
       );
     }
 
-    const availability =
-      this.recurringRepository.create({
-        ...dto,
-        doctor,
-      });
+    const availability = this.recurringRepository.create({
+      ...dto,
+      doctor,
+    });
 
-    return await this.recurringRepository.save(
-      availability,
-    );
+    const saved =
+      await this.recurringRepository.save(
+        availability,
+      );
+
+    let slots: {
+      startTime: string;
+      endTime: string;
+    }[] = [];
+
+    if (
+      saved.schedulingType ===
+      SchedulingType.WAVE
+    ) {
+      if (
+        !saved.capacity ||
+        saved.capacity <= 0
+      ) {
+        throw new BadRequestException(
+          'Capacity is required for WAVE scheduling',
+        );
+      }
+
+      return {
+        ...saved,
+        available: `${saved.capacity}/${saved.capacity}`,
+        tokenBased: true,
+      };
+    }
+
+    if (
+      saved.schedulingType ===
+      SchedulingType.STREAM
+    ) {
+      if (!saved.slotDuration) {
+        throw new BadRequestException(
+          'Slot duration is required for STREAM scheduling',
+        );
+      }
+
+      slots = this.generateStreamSlots(
+        saved.startTime,
+        saved.endTime,
+        saved.slotDuration,
+        saved.bufferTime ?? 0,
+      );
+    }
+
+    return {
+      ...saved,
+      slots,
+    };
   }
 
   async findAll(doctorId: number) {
@@ -123,21 +168,72 @@ const existing = await this.recurringRepository.find({
         },
       },
       relations: {
-  doctor: true,
-},
+        doctor: true,
+      },
       order: {
         day: 'ASC',
       },
     });
   }
 
+  private generateStreamSlots(
+    startTime: string,
+    endTime: string,
+    slotDuration: number,
+    bufferTime: number,
+  ) {
+    const slots: {
+      startTime: string;
+      endTime: string;
+    }[] = [];
+
+    const start = new Date(
+      `1970-01-01T${startTime}`,
+    );
+
+    const end = new Date(
+      `1970-01-01T${endTime}`,
+    );
+
+    let current = new Date(start);
+
+    while (true) {
+      const slotEnd = new Date(
+        current.getTime() +
+          slotDuration * 60000,
+      );
+
+      if (slotEnd > end) {
+        break;
+      }
+
+      slots.push({
+        startTime: current
+          .toTimeString()
+          .slice(0, 5),
+        endTime: slotEnd
+          .toTimeString()
+          .slice(0, 5),
+      });
+
+      current = new Date(
+        slotEnd.getTime() +
+          bufferTime * 60000,
+      );
+    }
+
+    return slots;
+  }
+
   async findOne(id: number) {
     const availability =
       await this.recurringRepository.findOne({
-        where: { id },
+        where: {
+          id,
+        },
         relations: {
-  doctor: true,
-}
+          doctor: true,
+        },
       });
 
     if (!availability) {
@@ -153,7 +249,8 @@ const existing = await this.recurringRepository.find({
     id: number,
     dto: UpdateRecurringAvailabilityDto,
   ) {
-    const availability = await this.findOne(id);
+    const availability =
+      await this.findOne(id);
 
     Object.assign(availability, dto);
 
@@ -163,7 +260,8 @@ const existing = await this.recurringRepository.find({
   }
 
   async remove(id: number) {
-    const availability = await this.findOne(id);
+    const availability =
+      await this.findOne(id);
 
     await this.recurringRepository.remove(
       availability,
