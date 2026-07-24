@@ -8,6 +8,7 @@ import { DoctorModule } from './doctor/doctor.module';
 import { PatientModule } from './patient/patient.module';
 import { RecurringAvailabilityModule } from './recurring-availability/recurring-availability.module';
 import { CustomAvailabilityModule } from './custom-availability/custom-availability.module';
+import { AppointmentModule } from './appointment/appointment.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { CustomAvailabilityModule } from './custom-availability/custom-availabil
     PatientModule,
     RecurringAvailabilityModule,
     CustomAvailabilityModule,
+    AppointmentModule,
   ],
 })
 export class AppModule {}
