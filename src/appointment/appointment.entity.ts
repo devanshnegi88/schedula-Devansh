@@ -1,57 +1,96 @@
 import {
   Entity,
   PrimaryGeneratedColumn,
-  ManyToOne,
   Column,
+  ManyToOne,
   CreateDateColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 
 import { Doctor } from '../doctor/doctor.entity';
 import { Patient } from '../patient/patient.entity';
 import { RecurringAvailability } from '../recurring-availability/entities/recurring-availability.entity';
 
-@Entity()
+@Entity('appointments')
 export class Appointment {
   @PrimaryGeneratedColumn()
   id: number;
 
   @ManyToOne(
     () => Doctor,
-    { onDelete: 'CASCADE' },
+    (doctor) => doctor.appointments,
+    {
+      onDelete: 'CASCADE',
+    },
   )
   doctor: Doctor;
 
   @ManyToOne(
     () => Patient,
-    { onDelete: 'CASCADE' },
+    (patient) => patient.appointments,
+    {
+      onDelete: 'CASCADE',
+    },
   )
   patient: Patient;
 
   @ManyToOne(
     () => RecurringAvailability,
-    { onDelete: 'CASCADE' },
+    (availability) => availability.appointments,
+    {
+      onDelete: 'CASCADE',
+    },
   )
   recurringAvailability: RecurringAvailability;
 
-  @Column()
+  @Column({
+    type: 'date',
+  })
   appointmentDate: string;
 
- @Column()
-slotStartTime: string;
-
-@Column()
-slotEndTime: string;
-
+  /**
+   * STREAM Scheduling
+   * Token assigned in booking order.
+   * Null for WAVE appointments.
+   */
   @Column({
+    type: 'int',
     nullable: true,
   })
-  tokenNumber: number;
+  tokenNumber: number | null;
+
+  /**
+   * WAVE Scheduling
+   * Generated slot start time.
+   * Null for STREAM appointments.
+   */
+  @Column({
+    type: 'time',
+    nullable: true,
+  })
+  slotStartTime: string | null;
+
+  /**
+   * WAVE Scheduling
+   * Generated slot end time.
+   * Null for STREAM appointments.
+   */
+  @Column({
+    type: 'time',
+    nullable: true,
+  })
+  slotEndTime: string | null;
 
   @Column({
+    type: 'varchar',
+    length: 20,
     default: 'BOOKED',
   })
   status: string;
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }

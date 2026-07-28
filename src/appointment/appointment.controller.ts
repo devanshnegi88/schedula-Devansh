@@ -1,11 +1,14 @@
 import {
   Body,
   Controller,
+  Get,
+  Param,
+  ParseIntPipe,
   Post,
 } from '@nestjs/common';
 
 import { AppointmentService } from './appointment.service';
-import { CreateAppointmentDto } from '../appointment/create-appointment.dto';
+import { CreateAppointmentDto } from './create-appointment.dto';
 
 @Controller('appointments')
 export class AppointmentController {
@@ -24,5 +27,17 @@ export class AppointmentController {
       dto.appointmentDate,
       dto.slotStartTime,
     );
+  }
+
+  @Get()
+  async findAll() {
+    return this.appointmentService.findAll();
+  }
+
+  @Get(':id')
+  async findOne(
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.appointmentService.findOne(id);
   }
 }

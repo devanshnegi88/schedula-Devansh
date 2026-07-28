@@ -24,60 +24,61 @@ export class RecurringAvailabilityService {
     private readonly doctorRepository: Repository<Doctor>,
   ) {}
 
-  async create(
-    doctorId: number,
-    dto: CreateRecurringAvailabilityDto,
-  ) {
-    const doctor = await this.doctorRepository.findOne({
-      where: {
+async create(
+  doctorId: number,
+  dto: CreateRecurringAvailabilityDto,
+) {
+  const doctor = await this.doctorRepository.findOne({
+    where: {
+      user: {
+        id: doctorId,
+      },
+    },
+    relations: {
+      user: true,
+    },
+  });
+
+  if (!doctor) {
+    throw new NotFoundException('Doctor not found');
+  }
+
+  if (dto.startTime >= dto.endTime) {
+    throw new BadRequestException(
+      'Start time must be before end time',
+    );
+  }
+
+  const existing = await this.recurringRepository.find({
+    where: {
+      doctor: {
         user: {
           id: doctorId,
         },
       },
-      relations: {
+      day: dto.day,
+    },
+    relations: {
+      doctor: {
         user: true,
       },
-    });
+    },
+  });
 
-    if (!doctor) {
-      throw new NotFoundException('Doctor not found');
-    }
+  for (const availability of existing) {
+    const overlap =
+      dto.startTime < availability.endTime &&
+      dto.endTime > availability.startTime;
 
-    if (dto.startTime >= dto.endTime) {
-      throw new BadRequestException(
-        'Start time must be before end time',
+    if (overlap) {
+      throw new ConflictException(
+        'Availability overlaps with an existing slot',
       );
     }
+  }
 
-    const existing = await this.recurringRepository.find({
-      where: {
-        doctor: {
-          user: {
-            id: doctorId,
-          },
-        },
-        day: dto.day,
-      },
-      relations: {
-        doctor: {
-          user: true,
-        },
-      },
-    });
-
-    for (const slot of existing) {
-      const overlap =
-        dto.startTime < slot.endTime &&
-        dto.endTime > slot.startTime;
-
-      if (overlap) {
-        throw new ConflictException(
-          'Availability overlaps with an existing slot',
-        );
-      }
-    }
-
-    const duplicate = await this.recurringRepository.findOne({
+  const duplicate =
+    await this.recurringRepository.findOne({
       where: {
         doctor: {
           user: {
@@ -93,183 +94,228 @@ export class RecurringAvailabilityService {
       },
     });
 
-    if (duplicate) {
-      throw new ConflictException(
-        'Duplicate availability already exists',
+  if (duplicate) {
+    throw new ConflictException(
+      'Duplicate availability already exists',
+    );
+  }
+
+  // ===================================
+  // STREAM VALIDATION
+  // ===================================
+
+  if (
+    dto.schedulingType ===
+    SchedulingType.STREAM
+  ) {
+    if (!dto.capacity || dto.capacity <= 0) {
+      throw new BadRequestException(
+        'Capacity is required for STREAM scheduling',
       );
     }
 
-    const availability = this.recurringRepository.create({
+    if (dto.slotDuration) {
+      throw new BadRequestException(
+        'slotDuration should not be provided for STREAM scheduling',
+      );
+    }
+
+    dto.slotDuration = undefined;
+    dto.bufferTime = 0;
+  }
+
+  // ===================================
+  // WAVE VALIDATION
+  // ===================================
+
+  if (
+    dto.schedulingType ===
+    SchedulingType.WAVE
+  ) {
+    if (
+      !dto.slotDuration ||
+      dto.slotDuration <= 0
+    ) {
+      throw new BadRequestException(
+        'slotDuration is required for WAVE scheduling',
+      );
+    }
+
+    if (dto.capacity) {
+      throw new BadRequestException(
+        'capacity should not be provided for WAVE scheduling',
+      );
+    }
+
+    dto.capacity = undefined;
+    dto.bufferTime ??= 0;
+  }
+
+  const availability =
+    this.recurringRepository.create({
       ...dto,
       doctor,
     });
 
-    const saved =
-      await this.recurringRepository.save(
-        availability,
-      );
+  const saved =
+    await this.recurringRepository.save(
+      availability,
+    );
 
-    let slots: {
-      startTime: string;
-      endTime: string;
-    }[] = [];
+  // ===================================
+  // STREAM RESPONSE
+  // ===================================
 
-    if (
-      saved.schedulingType ===
-      SchedulingType.WAVE
-    ) {
-      if (
-        !saved.capacity ||
-        saved.capacity <= 0
-      ) {
-        throw new BadRequestException(
-          'Capacity is required for WAVE scheduling',
-        );
-      }
-
-      return {
-        ...saved,
-        available: `${saved.capacity}/${saved.capacity}`,
-        tokenBased: true,
-      };
-    }
-
-    if (
-      saved.schedulingType ===
-      SchedulingType.STREAM
-    ) {
-      if (!saved.slotDuration) {
-        throw new BadRequestException(
-          'Slot duration is required for STREAM scheduling',
-        );
-      }
-
-      slots = this.generateStreamSlots(
-        saved.startTime,
-        saved.endTime,
-        saved.slotDuration,
-        saved.bufferTime ?? 0,
-      );
-    }
-
+  if (
+    saved.schedulingType ===
+    SchedulingType.STREAM
+  ) {
     return {
       ...saved,
-      slots,
+      appointmentWindow: `${saved.startTime} - ${saved.endTime}`,
+      maxCapacity: saved.capacity,
+      tokenBased: true,
     };
   }
 
+  // ===================================
+  // WAVE RESPONSE
+  // ===================================
+
+  const slots = this.generateWaveSlots(
+    saved.startTime,
+    saved.endTime,
+    saved.slotDuration!,
+    saved.bufferTime ?? 0,
+  );
+
+  return {
+    ...saved,
+    slots,
+  };
+}
+
+
+private generateWaveSlots(
+  startTime: string,
+  endTime: string,
+  slotDuration: number,
+  bufferTime: number,
+) {
+  const slots: {
+    startTime: string;
+    endTime: string;
+  }[] = [];
+
+  const start = new Date(`1970-01-01T${startTime}`);
+  const end = new Date(`1970-01-01T${endTime}`);
+
+  let current = new Date(start);
+
+  while (true) {
+    const slotEnd = new Date(current);
+    slotEnd.setMinutes(
+      slotEnd.getMinutes() + slotDuration,
+    );
+
+    if (slotEnd > end) {
+      break;
+    }
+
+    slots.push({
+      startTime: current.toTimeString().slice(0, 5),
+      endTime: slotEnd.toTimeString().slice(0, 5),
+    });
+
+    current = new Date(
+      slotEnd.getTime() + bufferTime * 60000,
+    );
+  }
+
+  return slots;
+}
+
   async findAll(doctorId: number) {
-    return this.recurringRepository.find({
-      where: {
-        doctor: {
-          user: {
-            id: doctorId,
-          },
+  return this.recurringRepository.find({
+    where: {
+      doctor: {
+        user: {
+          id: doctorId,
         },
+      },
+    },
+    relations: {
+      doctor: true,
+      appointments: true,
+    },
+    order: {
+      day: 'ASC',
+      startTime: 'ASC',
+    },
+  });
+}
+
+
+
+async findOne(id: number) {
+  const availability =
+    await this.recurringRepository.findOne({
+      where: {
+        id,
       },
       relations: {
         doctor: true,
-      },
-      order: {
-        day: 'ASC',
+        appointments: true,
       },
     });
+
+  if (!availability) {
+    throw new NotFoundException(
+      'Availability not found',
+    );
   }
 
-  private generateStreamSlots(
-    startTime: string,
-    endTime: string,
-    slotDuration: number,
-    bufferTime: number,
+  if (
+    availability.schedulingType ===
+    SchedulingType.WAVE
   ) {
-    const slots: {
-      startTime: string;
-      endTime: string;
-    }[] = [];
-
-    const start = new Date(
-      `1970-01-01T${startTime}`,
-    );
-
-    const end = new Date(
-      `1970-01-01T${endTime}`,
-    );
-
-    let current = new Date(start);
-
-    while (true) {
-      const slotEnd = new Date(
-        current.getTime() +
-          slotDuration * 60000,
-      );
-
-      if (slotEnd > end) {
-        break;
-      }
-
-      slots.push({
-        startTime: current
-          .toTimeString()
-          .slice(0, 5),
-        endTime: slotEnd
-          .toTimeString()
-          .slice(0, 5),
-      });
-
-      current = new Date(
-        slotEnd.getTime() +
-          bufferTime * 60000,
-      );
-    }
-
-    return slots;
-  }
-
-  async findOne(id: number) {
-    const availability =
-      await this.recurringRepository.findOne({
-        where: {
-          id,
-        },
-        relations: {
-          doctor: true,
-        },
-      });
-
-    if (!availability) {
-      throw new NotFoundException(
-        'Availability not found',
-      );
-    }
-
-    return availability;
-  }
-
-  async update(
-    id: number,
-    dto: UpdateRecurringAvailabilityDto,
-  ) {
-    const availability =
-      await this.findOne(id);
-
-    Object.assign(availability, dto);
-
-    return this.recurringRepository.save(
-      availability,
-    );
-  }
-
-  async remove(id: number) {
-    const availability =
-      await this.findOne(id);
-
-    await this.recurringRepository.remove(
-      availability,
-    );
-
     return {
-      message:
-        'Recurring availability deleted successfully',
+      ...availability,
+      slots: this.generateWaveSlots(
+        availability.startTime,
+        availability.endTime,
+        availability.slotDuration!,
+        availability.bufferTime ?? 0,
+      ),
     };
   }
+
+  return availability;
+}
+
+  async update(
+  id: number,
+  dto: UpdateRecurringAvailabilityDto,
+) {
+  const availability = await this.findOne(id);
+
+  Object.assign(availability, dto);
+
+  return this.recurringRepository.save(
+    availability,
+  );
+}
+
+  async remove(id: number) {
+  const availability = await this.findOne(id);
+
+  await this.recurringRepository.remove(
+    availability as RecurringAvailability,
+  );
+
+  return {
+    message:
+      'Recurring availability deleted successfully',
+  };
+}
 }

@@ -5,12 +5,12 @@ import {
   ManyToOne,
   CreateDateColumn,
   UpdateDateColumn,
-  OneToMany
+  OneToMany,
 } from 'typeorm';
 
 import { Doctor } from '../../doctor/doctor.entity';
-import { Day } from '../../enums/day.enum';
 import { Appointment } from '../../appointment/appointment.entity';
+import { Day } from '../../enums/day.enum';
 
 export enum SchedulingType {
   STREAM = 'STREAM',
@@ -53,12 +53,31 @@ export class RecurringAvailability {
   })
   schedulingType: SchedulingType;
 
+  /**
+   * STREAM ONLY
+   * Maximum number of patients that can book
+   * this appointment window.
+   */
   @Column({
     type: 'int',
     nullable: true,
   })
-  slotDuration?: number;
+  capacity: number | null;
 
+  /**
+   * WAVE ONLY
+   * Duration of each appointment slot (minutes).
+   */
+  @Column({
+    type: 'int',
+    nullable: true,
+  })
+  slotDuration: number | null;
+
+  /**
+   * WAVE ONLY
+   * Gap between consecutive slots (minutes).
+   */
   @Column({
     type: 'int',
     default: 0,
@@ -66,25 +85,19 @@ export class RecurringAvailability {
   bufferTime: number;
 
   @Column({
-    type: 'int',
-    nullable: true,
-  })
-  capacity?: number;
-
-  @Column({
     default: true,
   })
   recurring: boolean;
+
+  @OneToMany(
+    () => Appointment,
+    (appointment) => appointment.recurringAvailability,
+  )
+  appointments: Appointment[];
 
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
-
-  @OneToMany(
-  () => Appointment,
-  (appointment) => appointment.recurringAvailability,
-)
-appointments: Appointment[];
 }

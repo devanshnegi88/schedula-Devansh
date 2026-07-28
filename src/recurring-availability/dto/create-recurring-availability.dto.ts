@@ -1,10 +1,11 @@
 import {
+  IsBoolean,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
-  IsInt,
-  Min,
   Matches,
+  Min,
 } from 'class-validator';
 
 import { Day } from '../../enums/day.enum';
@@ -15,31 +16,48 @@ export class CreateRecurringAvailabilityDto {
   day: Day;
 
   @IsNotEmpty()
-  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/)
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'startTime must be in HH:mm format',
+  })
   startTime: string;
 
   @IsNotEmpty()
-  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/)
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'endTime must be in HH:mm format',
+  })
   endTime: string;
 
   @IsEnum(SchedulingType)
   schedulingType: SchedulingType;
 
+  /**
+   * STREAM ONLY
+   * Maximum number of patients allowed.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  capacity?: number;
+
+  /**
+   * WAVE ONLY
+   * Duration of each slot in minutes.
+   */
   @IsOptional()
   @IsInt()
   @Min(1)
   slotDuration?: number;
 
+  /**
+   * WAVE ONLY
+   * Gap between slots in minutes.
+   */
   @IsOptional()
   @IsInt()
   @Min(0)
   bufferTime?: number;
 
   @IsOptional()
-  @IsInt()
-  @Min(1)
-  capacity?: number;
-
-  @IsOptional()
+  @IsBoolean()
   recurring?: boolean = true;
 }
