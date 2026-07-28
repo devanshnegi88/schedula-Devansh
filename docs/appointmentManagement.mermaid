@@ -1,0 +1,15 @@
+flowchart TD
+    A([Start]) --> B[Patient Selects Doctor]
+    B --> C[Patient Selects Date]
+    C --> D[Fetch Available Slots]
+
+    D --> E{Is Slot Available?}
+
+    E -- Yes --> F[Book Appointment]
+    F --> G[Create Appointment]
+    G --> H[Update Slot Status to Unavailable]
+    H --> I[Return Success Response]
+    I --> Z([End])
+
+    E -- No --> J[Return "Slot Unavailable" Message]
+    J --> Z
