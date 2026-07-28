@@ -28,6 +28,7 @@ import { Repository } from 'typeorm';
 
 @Controller('appointments')
 export class AppointmentController {
+  doctorRepository: any;
 constructor(
   private readonly appointmentService: AppointmentService,
 
