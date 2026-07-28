@@ -11,6 +11,11 @@ import { Doctor } from '../doctor/doctor.entity';
 import { Patient } from '../patient/patient.entity';
 import { RecurringAvailability } from '../recurring-availability/entities/recurring-availability.entity';
 
+export enum AppointmentStatus {
+  BOOKED = 'BOOKED',
+  CANCELLED = 'CANCELLED',
+}
+
 @Entity('appointments')
 export class Appointment {
   @PrimaryGeneratedColumn()
@@ -81,16 +86,17 @@ export class Appointment {
   })
   slotEndTime: string | null;
 
-  @Column({
-    type: 'varchar',
-    length: 20,
-    default: 'BOOKED',
-  })
-  status: string;
+@Column({
+  type: 'enum',
+  enum: AppointmentStatus,
+  default: AppointmentStatus.BOOKED,
+})
+status: AppointmentStatus;
 
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
+  
 }

@@ -103,4 +103,20 @@ export class RecurringAvailabilityController {
         'Availability deleted successfully',
     };
   }
+
+  @Get(':id')
+async findOne(
+  @Param('id', ParseIntPipe) id: number,
+) {
+  const availability =
+    await this.recurringAvailabilityService.findOne(id);
+
+  return {
+    success: true,
+    message: 'Availability fetched successfully',
+    data: RecurringAvailabilityResponseDto.fromEntity(
+      availability,
+    ),
+  };
+}
 }
