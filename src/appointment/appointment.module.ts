@@ -11,12 +11,12 @@ import { RecurringAvailability } from '../recurring-availability/entities/recurr
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      Appointment,
-      Doctor,
-      Patient,
-      RecurringAvailability,
-    ]),
+TypeOrmModule.forFeature([
+  Appointment,
+  Doctor,
+  Patient,
+  RecurringAvailability,
+])
   ],
   controllers: [AppointmentController],
   providers: [AppointmentService],

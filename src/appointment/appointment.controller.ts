@@ -28,14 +28,16 @@ import { Repository } from 'typeorm';
 
 @Controller('appointments')
 export class AppointmentController {
-  doctorRepository: any;
+  
 constructor(
   private readonly appointmentService: AppointmentService,
 
   @InjectRepository(Patient)
   private readonly patientRepository: Repository<Patient>,
-) {}
 
+  @InjectRepository(Doctor)
+  private readonly doctorRepository: Repository<Doctor>,
+) {}
 
 @Post()
 @UseGuards(JwtAuthGuard, RolesGuard)
