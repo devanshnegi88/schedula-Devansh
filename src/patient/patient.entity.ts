@@ -3,10 +3,12 @@ import {
   PrimaryGeneratedColumn,
   Column,
   OneToOne,
+  OneToMany,
   JoinColumn,
 } from 'typeorm';
 
 import { User } from '../users/user.entity';
+import { Appointment } from '../appointment/appointment.entity';
 
 @Entity()
 export class Patient {
@@ -31,4 +33,10 @@ export class Patient {
   @OneToOne(() => User, (user) => user.patientProfile)
   @JoinColumn()
   user: User;
+
+  @OneToMany(
+  () => Appointment,
+  (appointment) => appointment.patient,
+)
+appointments: Appointment[];
 }

@@ -1,0 +1,20 @@
+flowchart TD
+    A[Doctor Selects Scheduling Type]
+
+    A --> B{Scheduling Type}
+
+    %% STREAM FLOW
+    B -->|STREAM| C[Create Availability<br/>Day, Start Time, End Time,<br/>Slot Duration, Buffer Time]
+    C --> D[System Generates Individual Time Slots]
+    D --> E[Patient Fetches Available Slots]
+    E --> F[Patient Selects a Slot]
+    F --> G[Book Appointment]
+    G --> H[Slot Reserved & Appointment Confirmed]
+
+    %% WAVE FLOW
+    B -->|WAVE| I[Create Availability<br/>Day, Start Time, End Time,<br/>Capacity]
+    I --> J[System Creates Wave]
+    J --> K[Patient Fetches Available Wave]
+    K --> L[Patient Books Appointment]
+    L --> M[Assign Token Number]
+    M --> N[Appointment Confirmed]

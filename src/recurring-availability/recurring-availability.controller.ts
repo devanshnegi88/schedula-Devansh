@@ -35,28 +35,37 @@ export class RecurringAvailabilityController {
     @Req() req,
     @Body() dto: CreateRecurringAvailabilityDto,
   ) {
-    const entity = await this.recurringAvailabilityService.create(
-      req.user.id,
-      dto,
-    );
-    
+    const availability =
+      await this.recurringAvailabilityService.create(
+        req.user.id,
+        dto,
+      );
+
     return {
       success: true,
       message: 'Availability created successfully',
-      data: RecurringAvailabilityResponseDto.fromEntity(entity),
+      data: RecurringAvailabilityResponseDto.fromEntity(
+        availability,
+      ),
     };
   }
 
   @Get()
   async findAll(@Req() req) {
-    const entities = await this.recurringAvailabilityService.findAll(
-      req.user.id,
-    );
-    
+    const availabilities =
+      await this.recurringAvailabilityService.findAll(
+        req.user.id,
+      );
+
     return {
       success: true,
-      message: 'Recurring availability fetched successfully',
-      data: entities.map((entity) => RecurringAvailabilityResponseDto.fromEntity(entity)),
+      message:
+        'Recurring availability fetched successfully',
+      data: availabilities.map((availability) =>
+        RecurringAvailabilityResponseDto.fromEntity(
+          availability,
+        ),
+      ),
     };
   }
 
@@ -65,15 +74,18 @@ export class RecurringAvailabilityController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateRecurringAvailabilityDto,
   ) {
-    const entity = await this.recurringAvailabilityService.update(
-      id,
-      dto,
-    );
-    
+    const availability =
+      await this.recurringAvailabilityService.update(
+        id,
+        dto,
+      );
+
     return {
       success: true,
       message: 'Availability updated successfully',
-      data: RecurringAvailabilityResponseDto.fromEntity(entity),
+      data: RecurringAvailabilityResponseDto.fromEntity(
+        availability,
+      ),
     };
   }
 
@@ -81,11 +93,30 @@ export class RecurringAvailabilityController {
   async remove(
     @Param('id', ParseIntPipe) id: number,
   ) {
-    await this.recurringAvailabilityService.remove(id);
-    
+    await this.recurringAvailabilityService.remove(
+      id,
+    );
+
     return {
       success: true,
-      message: 'Availability deleted successfully',
+      message:
+        'Availability deleted successfully',
     };
   }
+
+  @Get(':id')
+async findOne(
+  @Param('id', ParseIntPipe) id: number,
+) {
+  const availability =
+    await this.recurringAvailabilityService.findOne(id);
+
+  return {
+    success: true,
+    message: 'Availability fetched successfully',
+    data: RecurringAvailabilityResponseDto.fromEntity(
+      availability,
+    ),
+  };
+}
 }
