@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: schedula-api
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_HOST
+        fromDatabase:
+          name: schedula-db
+          property: host
+      - key: DATABASE_PORT
+        fromDatabase:
+          name: schedula-db
+          property: port
+      - key: DATABASE_USER
+        fromDatabase:
+          name: schedula-db
+          property: user
+      - key: DATABASE_PASSWORD
+        fromDatabase:
+          name: schedula-db
+          property: password
+      - key: DATABASE_NAME
+        fromDatabase:
+          name: schedula-db
+          property: database
+      - key: JWT_SECRET
+        generateValue: true
+
+databases:
+  - name: schedula-db
+    databaseName: schedula
+    user: schedula_user
+    plan: free
