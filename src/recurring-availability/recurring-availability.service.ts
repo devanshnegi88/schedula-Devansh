@@ -110,9 +110,9 @@ async create(
   ) {
     if (!dto.capacity || dto.capacity <= 0) {
       throw new BadRequestException(
-        'Capacity is required for STREAM scheduling',
-      );
-    }
+        'Capacity must be greater than 0',
+    );
+  }
 
     if (dto.slotDuration) {
       throw new BadRequestException(
@@ -128,28 +128,30 @@ async create(
   // WAVE VALIDATION
   // ===================================
 
+if (
+  dto.schedulingType ===
+  SchedulingType.WAVE
+) {
   if (
-    dto.schedulingType ===
-    SchedulingType.WAVE
+    !dto.slotDuration ||
+    dto.slotDuration <= 0
   ) {
-    if (
-      !dto.slotDuration ||
-      dto.slotDuration <= 0
-    ) {
-      throw new BadRequestException(
-        'slotDuration is required for WAVE scheduling',
-      );
-    }
-
-    if (dto.capacity) {
-      throw new BadRequestException(
-        'capacity should not be provided for WAVE scheduling',
-      );
-    }
-
-    dto.capacity = undefined;
-    dto.bufferTime ??= 0;
+    throw new BadRequestException(
+      'slotDuration is required for WAVE scheduling',
+    );
   }
+
+  if (
+    !dto.capacity ||
+    dto.capacity <= 0
+  ) {
+    throw new BadRequestException(
+      'Capacity must be greater than 0',
+    );
+  }
+
+  dto.bufferTime ??= 0;
+}
 
   const availability =
     this.recurringRepository.create({

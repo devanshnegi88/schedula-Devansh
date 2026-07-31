@@ -125,15 +125,25 @@ const days = [
       },
     });
 
-  const availableSlots = slots.map((slot) => ({
-    startTime: slot.startTime,
-    endTime: slot.endTime,
-    available: !bookedAppointments.some(
-      (appointment) =>
-        appointment.slotStartTime ===
-        slot.startTime,
-    ),
-  }));
+  const availableSlots = slots.map((slot) => {
+
+    const booked = bookedAppointments.filter(
+        appointment =>
+            appointment.slotStartTime === slot.startTime,
+    ).length;
+
+    const capacity = availability.capacity ?? 1;
+    const remaining = capacity - booked;
+
+    return {
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        capacity,
+        booked,
+        remaining,
+        available: remaining > 0,
+    };
+});
 
   return {
     schedulingType: SchedulingType.WAVE,
@@ -297,8 +307,9 @@ await this.appointmentRepository.count({
         throw new BadRequestException('Invalid appointment slot');
       }
 
-const existing =
-await this.appointmentRepository.findOne({
+
+const bookedCount =
+await this.appointmentRepository.count({
     where:{
         recurringAvailability:{id:availabilityId},
         appointmentDate,
@@ -307,9 +318,11 @@ await this.appointmentRepository.findOne({
     },
 });
 
-      if (existing) {
-        throw new BadRequestException('Slot already booked');
-      }
+if (bookedCount >= (availability.capacity ?? 0)) {
+    throw new BadRequestException(
+        'Selected slot is full',
+    );
+}
 
       return this.appointmentRepository.save(
         this.appointmentRepository.create({
