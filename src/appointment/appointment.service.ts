@@ -214,7 +214,27 @@ await this.availabilityRepository.findOne({
         doctor:true,
     },
 });
-    if (!availability) throw new NotFoundException('Availability not found');
+if (!availability) {
+  throw new NotFoundException('Availability not found');
+}
+
+if (
+  availability.schedulingType === SchedulingType.STREAM &&
+  slotStartTime
+) {
+  throw new BadRequestException(
+    'slotStartTime should not be provided for STREAM scheduling',
+  );
+}
+
+if (
+  availability.schedulingType === SchedulingType.WAVE &&
+  !slotStartTime
+) {
+  throw new BadRequestException(
+    'slotStartTime is required for WAVE scheduling',
+  );
+}
 
 const bookingTime =
   availability.schedulingType === SchedulingType.STREAM
