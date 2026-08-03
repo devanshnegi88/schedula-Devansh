@@ -77,17 +77,6 @@ export class RecurringAvailabilityService {
       }
     }
 
-<<<<<<< Updated upstream
-  if (
-    dto.schedulingType ===
-    SchedulingType.STREAM
-  ) {
-    if (!dto.capacity || dto.capacity <= 0) {
-      throw new BadRequestException(
-        'Capacity is required for STREAM scheduling',
-      );
-    }
-=======
     const duplicate =
       await this.recurringRepository.findOne({
         where: {
@@ -104,7 +93,7 @@ export class RecurringAvailabilityService {
           doctor: true,
         },
       });
->>>>>>> Stashed changes
+
 
     if (duplicate) {
       throw new ConflictException(
@@ -126,30 +115,7 @@ export class RecurringAvailabilityService {
         );
       }
 
-<<<<<<< Updated upstream
-  if (
-    dto.schedulingType ===
-    SchedulingType.WAVE
-  ) {
-    if (
-      !dto.slotDuration ||
-      dto.slotDuration <= 0
-    ) {
-      throw new BadRequestException(
-        'slotDuration is required for WAVE scheduling',
-      );
-    }
 
-    if (dto.capacity) {
-      throw new BadRequestException(
-        'capacity should not be provided for WAVE scheduling',
-      );
-    }
-
-    dto.capacity = undefined;
-    dto.bufferTime ??= 0;
-  }
-=======
       if (dto.slotDuration) {
         throw new BadRequestException(
           'slotDuration should not be provided for STREAM scheduling',
@@ -163,7 +129,6 @@ export class RecurringAvailabilityService {
     // ===================================
     // WAVE VALIDATION
     // ===================================
->>>>>>> Stashed changes
 
     if (
       dto.schedulingType ===
