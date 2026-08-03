@@ -6,6 +6,7 @@ import { Doctor } from '../doctor/doctor.entity';
 
 import { RecurringAvailabilityController } from './recurring-availability.controller';
 import { RecurringAvailabilityService } from './recurring-availability.service';
+import { CustomAvailabilityModule } from '../custom-availability/custom-availability.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { RecurringAvailabilityService } from './recurring-availability.service';
       RecurringAvailability,
       Doctor,
     ]),
+    CustomAvailabilityModule,
   ],
   controllers: [RecurringAvailabilityController],
   providers: [RecurringAvailabilityService],

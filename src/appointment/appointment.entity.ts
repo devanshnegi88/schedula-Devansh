@@ -86,17 +86,17 @@ export class Appointment {
   })
   slotEndTime: string | null;
 
-@Column({
-  type: 'enum',
-  enum: AppointmentStatus,
-  default: AppointmentStatus.BOOKED,
-})
-status: AppointmentStatus;
+  @Column({
+    type: 'enum',
+    enum: AppointmentStatus,
+    default: AppointmentStatus.BOOKED,
+  })
+  status: AppointmentStatus;
 
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
-  
+
 }

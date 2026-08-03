@@ -15,6 +15,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { Appointment } from './appointment.entity';
 import { Doctor } from '../doctor/doctor.entity';
 import { Patient } from '../patient/patient.entity';
+import { CustomAvailability } from '../custom-availability/entities/custom-availability.entity';
 import {
   RecurringAvailability,
   SchedulingType,
@@ -23,108 +24,130 @@ import { Day } from '../enums/day.enum';
 
 @Injectable()
 export class AppointmentService {
-async getAvailableSlots(
-  doctorId: number,
-  date: string,
-) {
-const doctor = await this.doctorRepository.findOne({
-  where: {
-    id: doctorId,
-  },
-  relations: {
-    user: true,
-  },
-});
+  async getAvailableSlots(
+    doctorId: number,
+    date: string,
+  ) {
+    const doctor = await this.doctorRepository.findOne({
+      where: {
+        id: doctorId,
+      },
+      relations: {
+        user: true,
+      },
+    });
 
-if (!doctor) {
-  throw new NotFoundException('Doctor not found');
-}
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
 
-  if (isNaN(new Date(date).getTime())) {
-    throw new BadRequestException('Invalid date');
-  }
+    if (isNaN(new Date(date).getTime())) {
+      throw new BadRequestException('Invalid date');
+    }
 
-const days = [
-  'SUNDAY',
-  'MONDAY',
-  'TUESDAY',
-  'WEDNESDAY',
-  'THURSDAY',
-  'FRIDAY',
-  'SATURDAY',
-];
+    const days = [
+      'SUNDAY',
+      'MONDAY',
+      'TUESDAY',
+      'WEDNESDAY',
+      'THURSDAY',
+      'FRIDAY',
+      'SATURDAY',
+    ];
 
-  const day = days[new Date(date).getUTCDay()] as Day;
+// ==============================
+// SMART DATE RESOLUTION
+// ==============================
 
-  const availability = await this.availabilityRepository.findOne({
+// 1. Check custom availability first
+const customAvailability =
+  await this.customAvailabilityRepository.findOne({
     where: {
       doctor: {
         id: doctorId,
       },
-      day,
+      date,
     },
     relations: {
       doctor: true,
     },
   });
 
-  if (!availability) {
+let availability: any;
+
+if (customAvailability) {
+  const day = days[
+    new Date(date).getUTCDay()
+  ] as Day;
+
+  const recurringAvailability =
+    await this.availabilityRepository.findOne({
+      where: {
+        doctor: {
+          id: doctorId,
+        },
+        day,
+      },
+      relations: {
+        doctor: true,
+      },
+    });
+
+  if (!recurringAvailability) {
     throw new NotFoundException(
-      'Doctor is not available on this date',
+      'Recurring availability not found',
     );
   }
 
-  // =======================
-  // STREAM SCHEDULING
-  // =======================
-  if (
-    availability.schedulingType ===
-    SchedulingType.STREAM
-  ) {
-    const booked = await this.appointmentRepository.count({
+  // Override only the time range
+  availability = {
+    ...recurringAvailability,
+    startTime: customAvailability.startTime,
+    endTime: customAvailability.endTime,
+  };
+} else {
+  const day = days[
+    new Date(date).getUTCDay()
+  ] as Day;
+
+  availability =
+    await this.availabilityRepository.findOne({
       where: {
-        recurringAvailability: {
-          id: availability.id,
+        doctor: {
+          id: doctorId,
         },
-        appointmentDate: date,
-        status: AppointmentStatus.BOOKED,
+        day,
+      },
+      relations: {
+        doctor: true,
       },
     });
+}
 
-    return {
-      schedulingType: SchedulingType.STREAM,
-      availabilityId: availability.id,
-      date,
-      startTime: availability.startTime,
-      endTime: availability.endTime,
-      capacity: availability.capacity,
-      booked,
-      remaining:
-        (availability.capacity ?? 0) - booked,
-    };
-  }
+    if (!availability) {
+      throw new NotFoundException(
+        'Doctor is not available on this date',
+      );
+    }
 
-  // =======================
-  // WAVE SCHEDULING
-  // =======================
-  const slots = this.generateWaveSlots(
-    availability.startTime,
-    availability.endTime,
-    availability.slotDuration!,
-    availability.bufferTime ?? 0,
-  );
-
-  const bookedAppointments =
-    await this.appointmentRepository.find({
-      where: {
-        recurringAvailability: {
-          id: availability.id,
+    // =======================
+    // STREAM SCHEDULING
+    // =======================
+    if (
+      availability.schedulingType ===
+      SchedulingType.STREAM
+    ) {
+      const booked = await this.appointmentRepository.count({
+        where: {
+          recurringAvailability: {
+            id: availability.id,
+          },
+          appointmentDate: date,
+          status: AppointmentStatus.BOOKED,
         },
-        appointmentDate: date,
-        status: AppointmentStatus.BOOKED,
-      },
-    });
+      });
 
+<<<<<<< Updated upstream
   const availableSlots = slots.map((slot) => ({
     startTime: slot.startTime,
     endTime: slot.endTime,
@@ -134,14 +157,69 @@ const days = [
         slot.startTime,
     ),
   }));
+=======
+      return {
+        schedulingType: SchedulingType.STREAM,
+        availabilityId: availability.id,
+        date,
+        startTime: availability.startTime,
+        endTime: availability.endTime,
+        capacity: availability.capacity,
+        booked,
+        remaining:
+          (availability.capacity ?? 0) - booked,
+      };
+    }
 
-  return {
-    schedulingType: SchedulingType.WAVE,
-    availabilityId: availability.id,
-    date,
-    slots: availableSlots,
-  };
-}
+    // =======================
+    // WAVE SCHEDULING
+    // =======================
+    const slots = this.generateWaveSlots(
+      availability.startTime,
+      availability.endTime,
+      availability.slotDuration!,
+      availability.bufferTime ?? 0,
+    );
+
+    const bookedAppointments =
+      await this.appointmentRepository.find({
+        where: {
+          recurringAvailability: {
+            id: availability.id,
+          },
+          appointmentDate: date,
+          status: AppointmentStatus.BOOKED,
+        },
+      });
+
+    const availableSlots = slots.map((slot) => {
+
+      const booked = bookedAppointments.filter(
+        appointment =>
+          appointment.slotStartTime?.substring(0, 5) === slot.startTime,
+      ).length;
+
+      const capacity = availability.capacity ?? 1;
+      const remaining = capacity - booked;
+
+      return {
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        capacity,
+        booked,
+        remaining,
+        available: remaining > 0,
+      };
+    });
+>>>>>>> Stashed changes
+
+    return {
+      schedulingType: SchedulingType.WAVE,
+      availabilityId: availability.id,
+      date,
+      slots: availableSlots,
+    };
+  }
 
   constructor(
     @InjectRepository(Appointment)
@@ -155,7 +233,10 @@ const days = [
 
     @InjectRepository(RecurringAvailability)
     private readonly availabilityRepository: Repository<RecurringAvailability>,
-  ) {}
+
+    @InjectRepository(CustomAvailability)
+private readonly customAvailabilityRepository: Repository<CustomAvailability>,
+  ) { }
 
   async bookAppointment(
     doctorId: number,
@@ -164,66 +245,95 @@ const days = [
     appointmentDate: string,
     slotStartTime?: string,
   ) {
-    const doctor = await this.doctorRepository.findOne({ where: { id: doctorId }});
+    const doctor = await this.doctorRepository.findOne({ where: { id: doctorId } });
     if (!doctor) throw new NotFoundException('Doctor not found');
 
-console.log('Received patientId:', patientId);
+    console.log('Received patientId:', patientId);
 
-const allPatients = await this.patientRepository.find({
-  relations: {
-    user: true,
-  },
-});
+    const allPatients = await this.patientRepository.find({
+      relations: {
+        user: true,
+      },
+    });
 
-console.log('All patients:', allPatients);
+    console.log('All patients:', allPatients);
 
-const patient = await this.patientRepository.findOne({
-  where: {
-    id: patientId,
-  },
-  relations: {
-    user: true,
-  },
-});
+    const patient = await this.patientRepository.findOne({
+      where: {
+        id: patientId,
+      },
+      relations: {
+        user: true,
+      },
+    });
 
-console.log('Found patient:', patient);
+    console.log('Found patient:', patient);
 
-if (!patient) {
-  throw new NotFoundException('Patient not found');
-}
+    if (!patient) {
+      throw new NotFoundException('Patient not found');
+    }
 
-const availability =
-await this.availabilityRepository.findOne({
-    where:{
-        id:availabilityId,
-        doctor:{
-            id:doctorId,
+    const availability =
+      await this.availabilityRepository.findOne({
+        where: {
+          id: availabilityId,
+          doctor: {
+            id: doctorId,
+          },
         },
+<<<<<<< Updated upstream
     },
     relations:{
         doctor:true,
     },
 });
     if (!availability) throw new NotFoundException('Availability not found');
+=======
+        relations: {
+          doctor: true,
+        },
+      });
+    if (!availability) {
+      throw new NotFoundException('Availability not found');
+    }
 
-const bookingTime =
-  availability.schedulingType === SchedulingType.STREAM
-    ? availability.startTime
-    : slotStartTime;
+    if (
+      availability.schedulingType === SchedulingType.STREAM &&
+      slotStartTime
+    ) {
+      throw new BadRequestException(
+        'slotStartTime should not be provided for STREAM scheduling',
+      );
+    }
 
-const appointmentDateTime = new Date(
-  `${appointmentDate}T${bookingTime}`,
-);
+    if (
+      availability.schedulingType === SchedulingType.WAVE &&
+      !slotStartTime
+    ) {
+      throw new BadRequestException(
+        'slotStartTime is required for WAVE scheduling',
+      );
+    }
+>>>>>>> Stashed changes
 
-if (appointmentDateTime <= new Date()) {
-  throw new BadRequestException(
-    'Appointment must be scheduled for a future date and time.',
-  );
-}
+    const bookingTime =
+      availability.schedulingType === SchedulingType.STREAM
+        ? availability.startTime
+        : slotStartTime;
+
+    const appointmentDateTime = new Date(
+      `${appointmentDate}T${bookingTime}`,
+    );
+
+    if (appointmentDateTime <= new Date()) {
+      throw new BadRequestException(
+        'Appointment must be scheduled for a future date and time.',
+      );
+    }
 
     const days = [
-      'SUNDAY','MONDAY','TUESDAY','WEDNESDAY',
-      'THURSDAY','FRIDAY','SATURDAY',
+      'SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY',
+      'THURSDAY', 'FRIDAY', 'SATURDAY',
     ];
     const appointmentDay = days[new Date(appointmentDate).getUTCDay()] as Day;
     if (appointmentDay !== availability.day) {
@@ -244,24 +354,24 @@ if (appointmentDateTime <= new Date()) {
       },
     });
 
-if (
-    duplicate &&
-    duplicate.status !== AppointmentStatus.CANCELLED
-) {
-    throw new BadRequestException(
+    if (
+      duplicate &&
+      duplicate.status !== AppointmentStatus.CANCELLED
+    ) {
+      throw new BadRequestException(
         'Appointment already booked',
-    );
-}
+      );
+    }
 
     if (availability.schedulingType === SchedulingType.STREAM) {
-const bookedPatients =
-await this.appointmentRepository.count({
-    where:{
-        recurringAvailability:{id:availabilityId},
-        appointmentDate,
-        status: AppointmentStatus.BOOKED,
-    },
-});
+      const bookedPatients =
+        await this.appointmentRepository.count({
+          where: {
+            recurringAvailability: { id: availabilityId },
+            appointmentDate,
+            status: AppointmentStatus.BOOKED,
+          },
+        });
 
       if (bookedPatients >= (availability.capacity ?? 0)) {
         throw new BadRequestException('Stream is full');
@@ -297,6 +407,7 @@ await this.appointmentRepository.count({
         throw new BadRequestException('Invalid appointment slot');
       }
 
+<<<<<<< Updated upstream
 const existing =
 await this.appointmentRepository.findOne({
     where:{
@@ -309,6 +420,23 @@ await this.appointmentRepository.findOne({
 
       if (existing) {
         throw new BadRequestException('Slot already booked');
+=======
+
+      const bookedCount =
+        await this.appointmentRepository.count({
+          where: {
+            recurringAvailability: { id: availabilityId },
+            appointmentDate,
+            slotStartTime,
+            status: AppointmentStatus.BOOKED,
+          },
+        });
+
+      if (bookedCount >= (availability.capacity ?? 0)) {
+        throw new BadRequestException(
+          'Selected slot is full',
+        );
+>>>>>>> Stashed changes
       }
 
       return this.appointmentRepository.save(
@@ -346,8 +474,8 @@ await this.appointmentRepository.findOne({
       if (slotEnd > end) break;
 
       slots.push({
-        startTime: current.toTimeString().slice(0,5),
-        endTime: slotEnd.toTimeString().slice(0,5),
+        startTime: current.toTimeString().slice(0, 5),
+        endTime: slotEnd.toTimeString().slice(0, 5),
       });
 
       current = new Date(slotEnd.getTime() + bufferTime * 60000);
@@ -390,108 +518,107 @@ await this.appointmentRepository.findOne({
 
 
   async findPatientAppointments(patientId: number) {
-  const appointments = await this.appointmentRepository.find({
-    where: {
-      patient: {
-        id: patientId,
-      },
-    },
-    relations: {
-      doctor: true,
-      recurringAvailability: true,
-    },
-    order: {
-      appointmentDate: 'ASC',
-      createdAt: 'ASC',
-    },
-  });
-
-  if (!appointments.length) {
-    throw new NotFoundException('No appointments found');
-  }
-
-  return appointments;
-}
-
-async findDoctorAppointments(doctorId: number) {
-  const appointments = await this.appointmentRepository.find({
-    where: {
-      doctor: {
-        id: doctorId,
-      },
-    },
-    relations: {
-      patient: true,
-      recurringAvailability: true,
-    },
-    order: {
-      appointmentDate: 'ASC',
-      createdAt: 'ASC',
-    },
-  });
-
-  if (!appointments.length) {
-    throw new NotFoundException('No appointments found');
-  }
-
-  return appointments;
-}
-
-async cancelAppointment(
-  appointmentId: number,
-  patientId: number,
-) {
-  const appointment =
-    await this.appointmentRepository.findOne({
+    const appointments = await this.appointmentRepository.find({
       where: {
-        id: appointmentId,
+        patient: {
+          id: patientId,
+        },
       },
       relations: {
-        patient: true,
+        doctor: true,
+        recurringAvailability: true,
+      },
+      order: {
+        appointmentDate: 'ASC',
+        createdAt: 'ASC',
       },
     });
 
-  if (!appointment) {
-    throw new NotFoundException(
-      'Appointment not found',
-    );
+    if (!appointments.length) {
+      throw new NotFoundException('No appointments found');
+    }
+
+    return appointments;
   }
 
-  if (appointment.patient.id !== patientId) {
-    throw new ForbiddenException(
-  'You can only cancel your own appointment',
-);
+  async findDoctorAppointments(doctorId: number) {
+    const appointments = await this.appointmentRepository.find({
+      where: {
+        doctor: {
+          id: doctorId,
+        },
+      },
+      relations: {
+        patient: true,
+        recurringAvailability: true,
+      },
+      order: {
+        appointmentDate: 'ASC',
+        createdAt: 'ASC',
+      },
+    });
+
+    if (!appointments.length) {
+      throw new NotFoundException('No appointments found');
+    }
+
+    return appointments;
   }
 
-  if (
-    appointment.status ===
-    AppointmentStatus.CANCELLED
+  async cancelAppointment(
+    appointmentId: number,
+    patientId: number,
   ) {
-    throw new BadRequestException(
-      'Appointment is already cancelled',
-    );
-  }
+    const appointment =
+      await this.appointmentRepository.findOne({
+        where: {
+          id: appointmentId,
+        },
+        relations: {
+          patient: true,
+        },
+      });
 
-  const appointmentDateTime = new Date(
-    `${appointment.appointmentDate}T${
-      appointment.slotStartTime ??
+    if (!appointment) {
+      throw new NotFoundException(
+        'Appointment not found',
+      );
+    }
+
+    if (appointment.patient.id !== patientId) {
+      throw new ForbiddenException(
+        'You can only cancel your own appointment',
+      );
+    }
+
+    if (
+      appointment.status ===
+      AppointmentStatus.CANCELLED
+    ) {
+      throw new BadRequestException(
+        'Appointment is already cancelled',
+      );
+    }
+
+    const appointmentDateTime = new Date(
+      `${appointment.appointmentDate}T${appointment.slotStartTime ??
       '00:00'
-    }:00`,
-  );
+      }:00`,
+    );
 
-  if (appointmentDateTime <= new Date()) {
-    throw new BadRequestException(
-      'Past appointments cannot be cancelled',
+    if (appointmentDateTime <= new Date()) {
+      throw new BadRequestException(
+        'Past appointments cannot be cancelled',
+      );
+    }
+
+    appointment.status =
+      AppointmentStatus.CANCELLED;
+
+    return this.appointmentRepository.save(
+      appointment,
     );
   }
-
-  appointment.status =
-    AppointmentStatus.CANCELLED;
-
-  return this.appointmentRepository.save(
-    appointment,
-  );
-}
 
 
 }
