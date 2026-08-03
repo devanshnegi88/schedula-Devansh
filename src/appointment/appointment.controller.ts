@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ForbiddenException } from '@nestjs/common';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Patient } from '../patient/patient.entity';
@@ -61,12 +62,19 @@ async bookAppointment(
     throw new NotFoundException('Patient profile not found');
   }
 
+  // Validate that the patientId in the request belongs to the logged-in user
+  if (dto.patientId !== patient.id) {
+    throw new ForbiddenException(
+      'You can only book appointments for your own patient profile',
+    );
+  }
+
   return {
     success: true,
     message: 'Appointment booked successfully',
     data: await this.appointmentService.bookAppointment(
       dto.doctorId,
-      patient.id, // ✅ Patient table ID
+      dto.patientId,
       dto.availabilityId,
       dto.appointmentDate,
       dto.slotStartTime,
