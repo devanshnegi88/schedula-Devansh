@@ -10,14 +10,15 @@ import { RecurringAvailability } from '../recurring-availability/entities/recurr
 
 @Module({
   imports: [
-TypeOrmModule.forFeature([
-  CustomAvailability,
-  RecurringAvailability,
-  Doctor,
-])
+    TypeOrmModule.forFeature([
+      CustomAvailability,
+      Doctor,
+      RecurringAvailability,
+    ]),
   ],
   controllers: [CustomAvailabilityController],
   providers: [CustomAvailabilityService],
-  exports: [CustomAvailabilityService],
+
+  exports: [CustomAvailabilityService], 
 })
 export class CustomAvailabilityModule {}

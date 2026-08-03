@@ -168,10 +168,12 @@ async cancelAppointment(
 
 @Get('available-slots')
 async getAvailableSlots(
-  @Query('doctorId', ParseIntPipe)
-  doctorId: number,
+
   @Query('date')
   date: string,
+  @Query('doctorId', ParseIntPipe)
+  doctorId: number,
+  
 ) {
   return {
     success: true,

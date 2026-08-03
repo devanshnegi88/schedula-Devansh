@@ -35,54 +35,91 @@ export class AppointmentService {
     }
 
     // Check CustomAvailability by doctor + date
-    const customAvailability = await this.customAvailabilityRepository.findOne({
-      where: {
-        doctor: { id: doctorId },
-        date,
+const customAvailability =
+  await this.customAvailabilityRepository.findOne({
+    where: {
+      doctor: {
+        id: doctorId,
       },
-      relations: { doctor: true },
-    });
+      date,
+    },
+    relations: {
+      doctor: true,
+    },
+  });
 
-    // If found, return as CUSTOM
-    if (customAvailability) {
-      return {
-        source: 'CUSTOM',
-        availability: customAvailability as any, // Cast to any to support scheduling fields
-      };
-    }
+let availability: any;
 
-    // Otherwise calculate the weekday
-    const days = [
-      'SUNDAY',
-      'MONDAY',
-      'TUESDAY',
-      'WEDNESDAY',
-      'THURSDAY',
-      'FRIDAY',
-      'SATURDAY',
-    ];
-    const day = days[new Date(date).getUTCDay()] as Day;
+const days = [
+  'SUNDAY',
+  'MONDAY',
+  'TUESDAY',
+  'WEDNESDAY',
+  'THURSDAY',
+  'FRIDAY',
+  'SATURDAY',
+];
 
-    // Fetch the doctor's recurring availability
-    const recurringAvailability = await this.availabilityRepository.findOne({
+if (customAvailability) {
+  const day = days[
+    new Date(date).getUTCDay()
+  ] as Day;
+
+  const recurringAvailability =
+    await this.availabilityRepository.findOne({
       where: {
-        doctor: { id: doctorId },
+        doctor: {
+          id: doctorId,
+        },
         day,
       },
-      relations: { doctor: true },
+      relations: {
+        doctor: true,
+      },
     });
 
-    // Return as RECURRING
-    if (recurringAvailability) {
-      return {
-        source: 'RECURRING',
-        availability: recurringAvailability,
-      };
-    }
-
-    // Throw NotFoundException if neither exists
-    throw new NotFoundException('Doctor is not available on this date');
+  if (!recurringAvailability) {
+    throw new NotFoundException(
+      'Recurring availability not found',
+    );
   }
+
+  // Override only the time range
+  availability = {
+    ...recurringAvailability,
+    startTime: customAvailability.startTime,
+    endTime: customAvailability.endTime,
+  };
+} else {
+  const day = days[
+    new Date(date).getUTCDay()
+  ] as Day;
+
+  availability =
+    await this.availabilityRepository.findOne({
+      where: {
+        doctor: {
+          id: doctorId,
+        },
+        day,
+      },
+      relations: {
+        doctor: true,
+      },
+    });
+}
+
+if (!availability) {
+  throw new NotFoundException(
+    'Doctor is not available on this date',
+  );
+}
+
+return {
+  source: customAvailability ? 'CUSTOM' : 'RECURRING',
+  availability,
+};
+}
 
   // 2. Refactor getAvailableSlots to use resolveAvailability
   async getAvailableSlots(
@@ -122,17 +159,18 @@ export class AppointmentService {
         },
       });
 
-      return {
-        schedulingType: SchedulingType.STREAM,
-        availabilityId: availability.id,
-        date,
-        startTime: availability.startTime,
-        endTime: availability.endTime,
-        capacity: availability.capacity,
-        booked,
-        remaining:
+     return {
+          source,
+          schedulingType: availability.schedulingType,
+          availabilityId: availability.id,
+          date,
+          startTime: availability.startTime,
+          endTime: availability.endTime,
+          capacity: availability.capacity,
+          booked,
+          remaining:
           (availability.capacity ?? 0) - booked,
-      };
+        };
     }
 
     // =======================
@@ -177,13 +215,14 @@ export class AppointmentService {
     });
 
     return {
-      schedulingType: SchedulingType.WAVE,
-      availabilityId: availability.id,
-      date,
-      slots: availableSlots,
-    };
-  }
 
+          source,
+          schedulingType: availability.schedulingType,
+          availabilityId: availability.id,
+          date,
+          slots: availableSlots,
+        };
+    }
   constructor(
     @InjectRepository(Appointment)
     private readonly appointmentRepository: Repository<Appointment>,
