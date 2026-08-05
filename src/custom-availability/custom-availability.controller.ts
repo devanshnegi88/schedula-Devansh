@@ -43,28 +43,4 @@ export class CustomAvailabilityController {
       data: CustomAvailabilityResponseDto.fromEntity(entity),
     };
   }
-
-  @Get('date')
-  async findByDate(
-    @Req() req,
-    @Query('date') date: string,
-  ) {
-    const result = await this.service.findByDate(
-      req.user.id,
-      date,
-    );
-    
-    const mappedAvailability = result.source === 'CUSTOM'
-      ? result.availability.map((item: any) => CustomAvailabilityResponseDto.fromEntity(item))
-      : result.availability.map((item: any) => RecurringAvailabilityResponseDto.fromEntity(item));
-
-    return {
-      success: true,
-      message: 'Availability fetched successfully',
-      data: {
-        source: result.source,
-        availability: mappedAvailability,
-      },
-    };
-  }
 }
