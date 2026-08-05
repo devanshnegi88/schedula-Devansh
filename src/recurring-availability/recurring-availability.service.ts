@@ -10,6 +10,7 @@ import { DataSource, Repository } from 'typeorm';
 import { RecurringAvailability } from './entities/recurring-availability.entity';
 import { SchedulingType } from './entities/recurring-availability.entity';
 import { Doctor } from '../doctor/doctor.entity';
+import { ElasticSchedulingService } from '../appointment/elastic-scheduling.service';
 import {
   appointment,
   appointmentStatus,
@@ -28,8 +29,11 @@ export class RecurringAvailabilityService {
     @InjectRepository(Doctor)
     private readonly doctorRepository: Repository<Doctor>,
 
-    private readonly appointmentService: appointmentService,
-    private readonly dataSource: DataSource,
+private readonly appointmentService: appointmentService,
+
+private readonly elasticSchedulingService: ElasticSchedulingService,
+
+private readonly dataSource: DataSource,
   ) { }
 
   async create(
@@ -268,16 +272,20 @@ export class RecurringAvailabilityService {
   }
 
   async update(
-    id: number,
-    dto: UpdateRecurringAvailabilityDto,
-  ) {
+  id: number,
+  dto: UpdateRecurringAvailabilityDto,
+) {
+  return this.dataSource.transaction(async (manager) => {
+
     const availability =
-      await this.recurringRepository.findOne({
-        where: { id },
-        relations: {
-          doctor: true,
-        },
-      });
+      await manager
+        .getRepository(RecurringAvailability)
+        .findOne({
+          where: { id },
+          relations: {
+            doctor: true,
+          },
+        });
 
     if (!availability) {
       throw new NotFoundException(
@@ -285,10 +293,17 @@ export class RecurringAvailabilityService {
       );
     }
 
+    const oldStartTime =
+      availability.startTime;
+
+    const oldEndTime =
+      availability.endTime;
+
     const newStartTime =
-      dto.startTime ?? availability.startTime;
+      dto.startTime ?? oldStartTime;
+
     const newEndTime =
-      dto.endTime ?? availability.endTime;
+      dto.endTime ?? oldEndTime;
 
     if (newStartTime >= newEndTime) {
       throw new BadRequestException(
@@ -306,30 +321,67 @@ export class RecurringAvailabilityService {
       );
     }
 
+    const isShrink =
+      newStartTime > oldStartTime ||
+      newEndTime < oldEndTime;
+
+    const isExpand =
+      newStartTime < oldStartTime ||
+      newEndTime > oldEndTime;
+
     Object.assign(availability, dto);
 
-    const updated =
-      await this.recurringRepository.save(
-        availability,
-      );
+    await manager.save(availability);
 
-    if (
-      updated.schedulingType ===
-      SchedulingType.WAVE
-    ) {
-      return {
-        ...updated,
-        slots: this.appointmentService.generateWaveSlots(
-          updated.startTime,
-          updated.endTime,
-          updated.slotDuration!,
-          updated.bufferTime ?? 0,
-        ),
-      };
+    if (isShrink) {
+
+      await this.elasticSchedulingService
+        .handleAvailabilityShrink(
+          availability,
+          newStartTime,
+          newEndTime,
+          new Date()
+            .toISOString()
+            .split('T')[0],
+          manager,
+        );
+
     }
 
-    return updated;
-  }
+    if (isExpand) {
+
+  await this.elasticSchedulingService
+    .handleAvailabilityExpand(
+      availability,
+      oldStartTime,
+      oldEndTime,
+      manager,
+    );
+
+}
+
+    if (
+      availability.schedulingType ===
+      SchedulingType.WAVE
+    ) {
+
+      return {
+        ...availability,
+        slots:
+          this.appointmentService.generateWaveSlots(
+            availability.startTime,
+            availability.endTime,
+            availability.slotDuration!,
+            availability.bufferTime ?? 0,
+          ),
+      };
+
+    }
+
+    return availability;
+
+  });
+}
 
   async remove(id: number) {
     const availability = await this.findOne(id);

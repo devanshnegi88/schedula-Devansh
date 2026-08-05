@@ -9,6 +9,7 @@ import { Doctor } from '../doctor/doctor.entity';
 import { Patient } from '../patient/patient.entity';
 import { RecurringAvailability } from '../recurring-availability/entities/recurring-availability.entity';
 import { CustomAvailability } from '../custom-availability/entities/custom-availability.entity';
+import { ElasticSchedulingService } from './elastic-scheduling.service';
 
 @Module({
   imports: [
@@ -18,10 +19,11 @@ import { CustomAvailability } from '../custom-availability/entities/custom-avail
       Patient,
       RecurringAvailability,
       CustomAvailability,
+      
     ]),
   ],
   controllers: [ appointmentController],
-  providers: [appointmentService],
-  exports: [appointmentService],
+  providers: [appointmentService,ElasticSchedulingService,],
+  exports: [appointmentService,ElasticSchedulingService,],
 })
 export class AppointmentModule { }

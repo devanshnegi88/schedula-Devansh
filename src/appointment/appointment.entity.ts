@@ -102,5 +102,12 @@ export class appointment {
   static status: appointmentStatus;
   static slotStartTime: string;
   static appointmentDate: any;
+  previousSlotId: any;
+  slotId: any;
+  previousSlotStartTime: string | null;
+  previousSlotEndTime: string | null;
+  rescheduledAutomatically: boolean;
+  rescheduledAt: Date;
+  rescheduleReason: string;
 
 }

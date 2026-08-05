@@ -153,6 +153,7 @@ export class appointmentService{
     // Use resolveAvailability() instead of direct queries
     const { source, availability } = await this.resolveAvailability(doctorId, date);
 
+
     // =======================
     // STREAM SCHEDULING
     // =======================
@@ -204,13 +205,16 @@ export class appointmentService{
           status: appointmentStatus.BOOKED,
         },
       });
+      console.log('Requested date:', date);
+console.log('Availability ID:', availability.id);
+console.log('Booked appointments:', bookedAppointments);
 
     const availableSlots = slots.map((slot) => {
 
       const booked = bookedAppointments.filter(
-        appointment =>
-          appointment.slotStartTime === slot.startTime,
-      ).length;
+  appointment =>
+    appointment.slotStartTime?.substring(0, 5) === slot.startTime,
+).length;
 
       const capacity = availability.capacity ?? 1;
       const remaining = capacity - booked;
@@ -1110,6 +1114,229 @@ public async findNextAvailableStream(
   }
 
   return null;
+}
+
+private async findAffectedAppointments(
+  doctorId: number,
+  availabilityId: number,
+  effectiveDate: string,
+  newStartTime: string,
+  newEndTime: string,
+  manager: EntityManager,
+): Promise<appointment[]> {
+  const appointmentRepository = manager.getRepository(appointment);
+
+  const appointments = await appointmentRepository.find({
+    where: {
+      doctor: { id: doctorId },
+      recurringAvailability: { id: availabilityId },
+      status: appointmentStatus.BOOKED,
+    },
+    relations: {
+      doctor: true,
+      patient: true,
+      recurringAvailability: true,
+    },
+    order: {
+      appointmentDate: 'ASC',
+      slotStartTime: 'ASC',
+      createdAt: 'ASC',
+    },
+  });
+
+  const affectedAppointments: appointment[] = [];
+
+  for (const booking of appointments) {
+    // Ignore appointments before the effective date
+    if (booking.appointmentDate < effectiveDate) {
+      continue;
+    }
+
+    const availability = booking.recurringAvailability;
+
+    // STREAM scheduling
+    if (availability.schedulingType === SchedulingType.STREAM) {
+      if (
+        availability.startTime < newStartTime ||
+        availability.endTime > newEndTime
+      ) {
+        affectedAppointments.push(booking);
+      }
+
+      continue;
+    }
+
+    // WAVE scheduling
+    if (
+      booking.slotStartTime! < newStartTime ||
+      booking.slotEndTime! > newEndTime
+    ) {
+      affectedAppointments.push(booking);
+    }
+  }
+
+  return affectedAppointments;
+}
+
+
+private async findNextAvailableAppointmentSlot(
+  doctorId: number,
+  startSearchingFrom: string,
+  manager: EntityManager,
+): Promise<{
+  availability: RecurringAvailability;
+  appointmentDate: string;
+  slotStartTime: string | null;
+  slotEndTime: string | null;
+} | null> {
+
+  let currentDate = new Date(startSearchingFrom);
+
+  // Search next 30 doctor working days
+  for (let searched = 0; searched < 30; searched++) {
+
+    const date = currentDate.toISOString().split('T')[0];
+
+    try {
+
+      // Uses your existing logic
+      const { availability } =
+        await this.resolveAvailability(
+          doctorId,
+          date,
+          manager,
+        );
+
+      // ==========================
+      // STREAM
+      // ==========================
+
+      if (
+        availability.schedulingType ===
+        SchedulingType.STREAM
+      ) {
+
+        const booked =
+          await manager.count(appointment, {
+            where: {
+              recurringAvailability: {
+                id: availability.id,
+              },
+              appointmentDate: date,
+              status: appointmentStatus.BOOKED,
+            },
+          });
+
+        if (booked < (availability.capacity ?? 1)) {
+
+          return {
+            availability,
+            appointmentDate: date,
+            slotStartTime: null,
+            slotEndTime: null,
+          };
+        }
+      }
+
+      // ==========================
+      // WAVE
+      // ==========================
+
+      const slots = this.generateWaveSlots(
+        availability.startTime,
+        availability.endTime,
+        availability.slotDuration!,
+        availability.bufferTime ?? 0,
+      );
+
+      for (const slot of slots) {
+
+        const booked =
+          await manager.count(appointment, {
+            where: {
+              recurringAvailability: {
+                id: availability.id,
+              },
+              appointmentDate: date,
+              slotStartTime: slot.startTime,
+              status: appointmentStatus.BOOKED,
+            },
+          });
+
+        if (booked < (availability.capacity ?? 1)) {
+
+          return {
+            availability,
+            appointmentDate: date,
+            slotStartTime: slot.startTime,
+            slotEndTime: slot.endTime,
+          };
+        }
+      }
+
+    } catch {
+      // Doctor unavailable on this date.
+      // Continue searching.
+    }
+
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  return null;
+}
+
+private async autoRescheduleAppointment(
+  appointmentEntity: appointment,
+  manager: EntityManager,
+): Promise<appointment> {
+
+  const nextSlot =
+    await this.findNextAvailableAppointmentSlot(
+      appointmentEntity.doctor.id,
+      appointmentEntity.appointmentDate,
+      manager,
+    );
+
+  if (!nextSlot) {
+    throw new BadRequestException(
+      `No available slot found for Appointment #${appointmentEntity.id}`,
+    );
+  }
+
+  // Save previous slot details
+  appointmentEntity.previousSlotId =
+    appointmentEntity.slotId;
+
+  appointmentEntity.previousSlotStartTime =
+    appointmentEntity.slotStartTime;
+
+  appointmentEntity.previousSlotEndTime =
+    appointmentEntity.slotEndTime;
+
+  // Move appointment
+  appointmentEntity.recurringAvailability =
+    nextSlot.availability;
+
+  appointmentEntity.appointmentDate =
+    nextSlot.appointmentDate;
+
+  appointmentEntity.slotStartTime =
+    nextSlot.slotStartTime;
+
+  appointmentEntity.slotEndTime =
+    nextSlot.slotEndTime;
+
+  appointmentEntity.rescheduledAutomatically = true;
+
+  appointmentEntity.rescheduledAt = new Date();
+
+  appointmentEntity.rescheduleReason =
+    'DOCTOR_SHRUNK_AVAILABILITY';
+
+  appointmentEntity.status =
+    appointmentStatus.BOOKED;
+
+  return manager.save(appointmentEntity);
 }
 
 }
