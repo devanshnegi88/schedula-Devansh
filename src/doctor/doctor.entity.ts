@@ -10,7 +10,7 @@ import {
 import { User } from '../users/user.entity';
 import { RecurringAvailability } from '../recurring-availability/entities/recurring-availability.entity';
 import { CustomAvailability } from '../custom-availability/entities/custom-availability.entity';
-import { Appointment } from '../appointment/appointment.entity';
+import { appointment } from '../appointment/appointment.entity';
 
 @Entity()
 export class Doctor {
@@ -43,20 +43,20 @@ export class Doctor {
   user: User;
 
   @OneToMany(
-  () => RecurringAvailability,
-  (availability) => availability.doctor,
-)
-recurringAvailability: RecurringAvailability[];
+    () => RecurringAvailability,
+    (availability) => availability.doctor,
+  )
+  recurringAvailability: RecurringAvailability[];
 
-@OneToMany(
-  () => CustomAvailability,
-  (availability) => availability.doctor,
-)
-customAvailability: CustomAvailability[];
+  @OneToMany(
+    () => CustomAvailability,
+    (availability) => availability.doctor,
+  )
+  customAvailability: CustomAvailability[];
 
-@OneToMany(
-  () => Appointment,
-  (appointment) => appointment.doctor,
-)
-appointments: Appointment[];
+  @OneToMany(
+    () => appointment,
+    (appointment) => appointment.doctor,
+  )
+  appointments: appointment[];
 }

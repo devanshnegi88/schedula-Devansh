@@ -11,13 +11,13 @@ import { Doctor } from '../doctor/doctor.entity';
 import { Patient } from '../patient/patient.entity';
 import { RecurringAvailability } from '../recurring-availability/entities/recurring-availability.entity';
 
-export enum AppointmentStatus {
+export enum appointmentStatus {
   BOOKED = 'BOOKED',
   CANCELLED = 'CANCELLED',
 }
 
 @Entity('appointments')
-export class Appointment {
+export class appointment {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -86,17 +86,21 @@ export class Appointment {
   })
   slotEndTime: string | null;
 
-@Column({
-  type: 'enum',
-  enum: AppointmentStatus,
-  default: AppointmentStatus.BOOKED,
-})
-status: AppointmentStatus;
+  @Column({
+    type: 'enum',
+    enum: appointmentStatus,
+    default: appointmentStatus.BOOKED,
+  })
+  status: appointmentStatus;
 
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
-  
+  static patient: any;
+  static status: appointmentStatus;
+  static slotStartTime: string;
+  static appointmentDate: any;
+
 }

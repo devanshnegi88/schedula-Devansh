@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { Appointment } from './appointment.entity';
-import { AppointmentService } from './appointment.service';
-import { AppointmentController } from './appointment.controller';
+import { appointment } from './appointment.entity';
+import { appointmentService } from './appointment.service';
+import { appointmentController } from './appointment.controller';
 
 import { Doctor } from '../doctor/doctor.entity';
 import { Patient } from '../patient/patient.entity';
@@ -13,15 +13,15 @@ import { CustomAvailability } from '../custom-availability/entities/custom-avail
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      Appointment,
+      appointment,
       Doctor,
       Patient,
       RecurringAvailability,
       CustomAvailability,
     ]),
   ],
-  controllers: [AppointmentController],
-  providers: [AppointmentService],
-  exports: [AppointmentService],
+  controllers: [ appointmentController],
+  providers: [appointmentService],
+  exports: [appointmentService],
 })
-export class AppointmentModule {}
+export class AppointmentModule { }
