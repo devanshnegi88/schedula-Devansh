@@ -5,7 +5,7 @@ import {
   Matches,
 } from 'class-validator';
 
-export class CreateAppointmentDto {
+export class CreateappointmentDto {
   @IsInt()
   doctorId: number;
 

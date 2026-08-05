@@ -3,14 +3,15 @@ import {
   Controller,
   Delete,
   Get,
+  Query,
   Param,
   ParseIntPipe,
   Patch,
   Post,
-  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
+
 
 import { RecurringAvailabilityService } from './recurring-availability.service';
 import { CreateRecurringAvailabilityDto } from './dto/create-recurring-availability.dto';
@@ -18,6 +19,7 @@ import { UpdateRecurringAvailabilityDto } from './dto/update-recurring-availabil
 import { RecurringAvailabilityResponseDto } from './dto/recurring-availability-response.dto';
 import { CustomAvailabilityService } from '../custom-availability/custom-availability.service';
 import { CustomAvailabilityResponseDto } from '../custom-availability/dto/custom-availability-response.dto';
+
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -30,9 +32,9 @@ import { Role } from '../users/user.entity';
 @Roles(Role.DOCTOR)
 export class RecurringAvailabilityController {
   constructor(
-    private readonly recurringAvailabilityService: RecurringAvailabilityService,
-    private readonly customAvailabilityService: CustomAvailabilityService,
-  ) {}
+  private readonly recurringAvailabilityService: RecurringAvailabilityService,
+  private readonly customAvailabilityService: CustomAvailabilityService,
+) {}
 
   @Post()
   async create(
@@ -73,31 +75,6 @@ export class RecurringAvailabilityController {
     };
   }
 
-  @Get('date')
-  async findByDate(
-    @Req() req,
-    @Query('date') date: string,
-  ) {
-    const result = await this.customAvailabilityService.findByDate(
-      req.user.id,
-      date,
-    );
-    
-    const mappedAvailability = result.source === 'CUSTOM'
-      ? result.availability.map((item: any) => CustomAvailabilityResponseDto.fromEntity(item))
-      : result.availability.map((item: any) => RecurringAvailabilityResponseDto.fromEntity(item));
-
-    return {
-      success: true,
-      message: 'Availability fetched successfully',
-      data: {
-        source: result.source,
-        availability: mappedAvailability,
-      },
-    };
-  }
-
-
   @Patch(':id')
   async update(
     @Param('id', ParseIntPipe) id: number,
@@ -132,6 +109,36 @@ export class RecurringAvailabilityController {
         'Availability deleted successfully',
     };
   }
+
+  @Get('date')
+async findByDate(
+  @Req() req,
+  @Query('date') date: string,
+) {
+  const result =
+    await this.customAvailabilityService.findByDate(
+      req.user.id,
+      date,
+    );
+
+  const mappedAvailability =
+    result.source === 'CUSTOM'
+      ? result.availability.map((item: any) =>
+          CustomAvailabilityResponseDto.fromEntity(item),
+        )
+      : result.availability.map((item: any) =>
+          RecurringAvailabilityResponseDto.fromEntity(item),
+        );
+
+  return {
+    success: true,
+    message: 'Availability fetched successfully',
+    data: {
+      source: result.source,
+      availability: mappedAvailability,
+    },
+  };
+}
 
   @Get(':id')
 async findOne(

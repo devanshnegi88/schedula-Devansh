@@ -41,7 +41,7 @@ erDiagram
         boolean is_available
     }
 
-    APPOINTMENT {
+    appointment {
         UUID id PK
         UUID patient_id FK
         UUID doctor_id FK
@@ -106,12 +106,12 @@ erDiagram
 
     DOCTOR ||--o{ SLOT : creates
 
-    PATIENT ||--o{ APPOINTMENT : books
-    DOCTOR ||--o{ APPOINTMENT : attends
-    SLOT ||--|| APPOINTMENT : scheduled_for
+    PATIENT ||--o{ appointment : books
+    DOCTOR ||--o{ appointment : attends
+    SLOT ||--|| appointment : scheduled_for
 
-    APPOINTMENT ||--o| PAYMENT : payment
-    APPOINTMENT ||--o| REVIEW : feedback
+    appointment ||--o| PAYMENT : payment
+    appointment ||--o| REVIEW : feedback
 
     USER ||--o{ NOTIFICATION : receives
 

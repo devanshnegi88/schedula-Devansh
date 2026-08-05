@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 
 import { Doctor } from '../../doctor/doctor.entity';
-import { Appointment } from '../../appointment/appointment.entity';
+import { appointment } from '../../appointment/appointment.entity';
 import { Day } from '../../enums/day.enum';
 
 export enum SchedulingType {
@@ -90,10 +90,10 @@ export class RecurringAvailability {
   recurring: boolean;
 
   @OneToMany(
-    () => Appointment,
+    () => appointment,
     (appointment) => appointment.recurringAvailability,
   )
-  appointments: Appointment[];
+  appointments: appointment[];
 
   @CreateDateColumn()
   createdAt: Date;

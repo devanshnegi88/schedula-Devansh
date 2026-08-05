@@ -5,11 +5,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { RecurringAvailability } from './entities/recurring-availability.entity';
 import { SchedulingType } from './entities/recurring-availability.entity';
 import { Doctor } from '../doctor/doctor.entity';
+import {
+  appointment,
+  appointmentStatus,
+} from '../appointment/appointment.entity';
+import { appointmentService } from '../appointment/appointment.service';
 
 import { CreateRecurringAvailabilityDto } from './dto/create-recurring-availability.dto';
 import { UpdateRecurringAvailabilityDto } from './dto/update-recurring-availability.dto';
@@ -22,6 +27,9 @@ export class RecurringAvailabilityService {
 
     @InjectRepository(Doctor)
     private readonly doctorRepository: Repository<Doctor>,
+
+    private readonly appointmentService: appointmentService,
+    private readonly dataSource: DataSource,
   ) { }
 
   async create(
@@ -186,7 +194,7 @@ export class RecurringAvailabilityService {
     // WAVE RESPONSE
     // ===================================
 
-    const slots = this.generateWaveSlots(
+    const slots = this.appointmentService.generateWaveSlots(
       saved.startTime,
       saved.endTime,
       saved.slotDuration!,
@@ -200,44 +208,6 @@ export class RecurringAvailabilityService {
   }
 
 
-  private generateWaveSlots(
-    startTime: string,
-    endTime: string,
-    slotDuration: number,
-    bufferTime: number,
-  ) {
-    const slots: {
-      startTime: string;
-      endTime: string;
-    }[] = [];
-
-    const start = new Date(`1970-01-01T${startTime}`);
-    const end = new Date(`1970-01-01T${endTime}`);
-
-    let current = new Date(start);
-
-    while (true) {
-      const slotEnd = new Date(current);
-      slotEnd.setMinutes(
-        slotEnd.getMinutes() + slotDuration,
-      );
-
-      if (slotEnd > end) {
-        break;
-      }
-
-      slots.push({
-        startTime: current.toTimeString().slice(0, 5),
-        endTime: slotEnd.toTimeString().slice(0, 5),
-      });
-
-      current = new Date(
-        slotEnd.getTime() + bufferTime * 60000,
-      );
-    }
-
-    return slots;
-  }
 
   async findAll(doctorId: number) {
     return this.recurringRepository.find({
@@ -285,7 +255,7 @@ export class RecurringAvailabilityService {
     ) {
       return {
         ...availability,
-        slots: this.generateWaveSlots(
+        slots: this.appointmentService.generateWaveSlots(
           availability.startTime,
           availability.endTime,
           availability.slotDuration!,
@@ -301,13 +271,64 @@ export class RecurringAvailabilityService {
     id: number,
     dto: UpdateRecurringAvailabilityDto,
   ) {
-    const availability = await this.findOne(id);
+    const availability =
+      await this.recurringRepository.findOne({
+        where: { id },
+        relations: {
+          doctor: true,
+        },
+      });
+
+    if (!availability) {
+      throw new NotFoundException(
+        'Availability not found',
+      );
+    }
+
+    const newStartTime =
+      dto.startTime ?? availability.startTime;
+    const newEndTime =
+      dto.endTime ?? availability.endTime;
+
+    if (newStartTime >= newEndTime) {
+      throw new BadRequestException(
+        'Start time must be before end time',
+      );
+    }
+
+    if (
+      dto.schedulingType &&
+      dto.schedulingType !==
+        availability.schedulingType
+    ) {
+      throw new BadRequestException(
+        'Cannot change scheduling type',
+      );
+    }
 
     Object.assign(availability, dto);
 
-    return this.recurringRepository.save(
-      availability,
-    );
+    const updated =
+      await this.recurringRepository.save(
+        availability,
+      );
+
+    if (
+      updated.schedulingType ===
+      SchedulingType.WAVE
+    ) {
+      return {
+        ...updated,
+        slots: this.appointmentService.generateWaveSlots(
+          updated.startTime,
+          updated.endTime,
+          updated.slotDuration!,
+          updated.bufferTime ?? 0,
+        ),
+      };
+    }
+
+    return updated;
   }
 
   async remove(id: number) {

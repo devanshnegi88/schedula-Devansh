@@ -1,0 +1,28 @@
+flowchart TD
+
+    A[Doctor Updates Availability] --> B[Elastic Schedule Adjustment]
+
+    B --> C{Adjustment Type}
+
+    %% Reduce
+    C -->|Reduce Availability Window| D[Validate Updated Time Range]
+    D --> E{Existing Bookings Outside New Range?}
+
+    E -->|Yes| F[Reject Update or Request Rescheduling]
+    E -->|No| G[Update Availability Window]
+    G --> H[Regenerate appointment Slots]
+    H --> I[Publish Updated Schedule]
+
+    %% Extend
+    C -->|Extend Availability Window| J[Validate Updated Time Range]
+    J --> K[Extend Working Hours]
+    K --> L[Generate Additional appointment Slots]
+    L --> M[Preserve Existing appointments]
+    M --> N[Publish Updated Schedule]
+
+    style A fill:#E3F2FD
+    style B fill:#FFF3E0
+    style C fill:#F3E5F5
+    style I fill:#E8F5E9
+    style N fill:#E8F5E9
+    style F fill:#FFEBEE

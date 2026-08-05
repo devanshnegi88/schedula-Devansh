@@ -10,6 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ForbiddenException } from '@nestjs/common';
@@ -19,68 +20,69 @@ import { Patient } from '../patient/patient.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { NotFoundException } from '@nestjs/common';
 import { Doctor } from '../doctor/doctor.entity';
+import { RescheduleappointmentDto } from './reschedule-appointment.dto';
 
 import { Role } from '../users/user.entity';
 
-import { AppointmentService } from './appointment.service';
-import { CreateAppointmentDto } from './create-appointment.dto';
+import { appointmentService } from './appointment.service';
+import { CreateappointmentDto } from './create-appointment.dto';
 import { Repository } from 'typeorm';
 
 
 @Controller('appointments')
-export class AppointmentController {
-  
-constructor(
-  private readonly appointmentService: AppointmentService,
+export class appointmentController {
 
-  @InjectRepository(Patient)
-  private readonly patientRepository: Repository<Patient>,
+  constructor(
+    private readonly appointmentService: appointmentService,
 
-  @InjectRepository(Doctor)
-  private readonly doctorRepository: Repository<Doctor>,
-) {}
+    @InjectRepository(Patient)
+    private readonly patientRepository: Repository<Patient>,
 
-@Post()
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.PATIENT)
-async bookAppointment(
-  @Body() dto: CreateAppointmentDto,
-  @Req() req,
-) {
-  const patient = await this.patientRepository.findOne({
-    where: {
-      user: {
-        id: req.user.id,
+    @InjectRepository(Doctor)
+    private readonly doctorRepository: Repository<Doctor>,
+  ) { }
+
+  @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.PATIENT)
+  async bookAppointment(
+    @Body() dto: CreateappointmentDto,
+    @Req() req,
+  ) {
+    const patient = await this.patientRepository.findOne({
+      where: {
+        user: {
+          id: req.user.id,
+        },
       },
-    },
-    relations: {
-      user: true,
-    },
-  });
+      relations: {
+        user: true,
+      },
+    });
 
-  if (!patient) {
-    throw new NotFoundException('Patient profile not found');
+    if (!patient) {
+      throw new NotFoundException('Patient profile not found');
+    }
+
+    // Validate that the patientId in the request belongs to the logged-in user
+    if (dto.patientId !== patient.id) {
+      throw new ForbiddenException(
+        'You can only book appointments for your own patient profile',
+      );
+    }
+
+    return {
+      success: true,
+      message: 'appointment booked successfully',
+      data: await this.appointmentService.bookAppointment(
+        dto.doctorId,
+        dto.patientId,
+        dto.availabilityId,
+        dto.appointmentDate,
+        dto.slotStartTime,
+      ),
+    };
   }
-
-  // Validate that the patientId in the request belongs to the logged-in user
-  if (dto.patientId !== patient.id) {
-    throw new ForbiddenException(
-      'You can only book appointments for your own patient profile',
-    );
-  }
-
-  return {
-    success: true,
-    message: 'Appointment booked successfully',
-    data: await this.appointmentService.bookAppointment(
-      dto.doctorId,
-      dto.patientId,
-      dto.availabilityId,
-      dto.appointmentDate,
-      dto.slotStartTime,
-    ),
-  };
-}
 
   @Get()
   async findAll() {
@@ -88,100 +90,135 @@ async bookAppointment(
   }
 
   @Get('my')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.PATIENT)
-async findMyAppointments(@Req() req) {
-  const patient = await this.patientRepository.findOne({
-    where: {
-      user: {
-        id: req.user.id,
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.PATIENT)
+  async findMyappointments(@Req() req) {
+    const patient = await this.patientRepository.findOne({
+      where: {
+        user: {
+          id: req.user.id,
+        },
       },
-    },
-  });
+    });
 
-  if (!patient) {
-    throw new NotFoundException('Patient profile not found');
+    if (!patient) {
+      throw new NotFoundException('Patient profile not found');
+    }
+
+    return {
+      success: true,
+      message: 'Patient appointments fetched successfully',
+      data: await this.appointmentService.findPatientAppointments(
+        patient.id,
+      ),
+    };
   }
 
-  return {
-    success: true,
-    message: 'Patient appointments fetched successfully',
-    data: await this.appointmentService.findPatientAppointments(
-      patient.id,
-    ),
-  };
-}
-
- @Get('doctor/appointments')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.DOCTOR)
-async findDoctorAppointments(@Req() req) {
-  const doctor = await this.doctorRepository.findOne({
-    where: {
-      user: {
-        id: req.user.id,
+  @Get('doctor/appointments')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.DOCTOR)
+  async findDoctorappointments(@Req() req) {
+    const doctor = await this.doctorRepository.findOne({
+      where: {
+        user: {
+          id: req.user.id,
+        },
       },
-    },
-  });
+    });
 
-  if (!doctor) {
-    throw new NotFoundException('Doctor profile not found');
+    if (!doctor) {
+      throw new NotFoundException('Doctor profile not found');
+    }
+
+    return {
+      success: true,
+      message: 'Doctor appointments fetched successfully',
+      data: await this.appointmentService.findDoctorAppointments(
+        doctor.id,
+      ),
+    };
   }
-
-  return {
-    success: true,
-    message: 'Doctor appointments fetched successfully',
-    data: await this.appointmentService.findDoctorAppointments(
-      doctor.id,
-    ),
-  };
-}
 
   @Patch(':id/cancel')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.PATIENT)
-async cancelAppointment(
-  @Param('id', ParseIntPipe) id: number,
-  @Req() req,
-) {
-  const patient = await this.patientRepository.findOne({
-    where: {
-      user: {
-        id: req.user.id,
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.PATIENT)
+  async cancelappointment(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req,
+  ) {
+    const patient = await this.patientRepository.findOne({
+      where: {
+        user: {
+          id: req.user.id,
+        },
       },
-    },
-  });
+    });
 
-  if (!patient) {
-    throw new NotFoundException('Patient profile not found');
+    if (!patient) {
+      throw new NotFoundException('Patient profile not found');
+    }
+
+    return {
+      success: true,
+      message: 'appointment cancelled successfully',
+      data: await this.appointmentService.cancelAppointment(
+        id,
+        patient.id,
+      ),
+    };
   }
 
-  return {
-    success: true,
-    message: 'Appointment cancelled successfully',
-    data: await this.appointmentService.cancelAppointment(
-      id,
-      patient.id,
-    ),
-  };
-}
 
-@Get('available-slots')
-async getAvailableSlots(
-  @Query('doctorId', ParseIntPipe)
-  doctorId: number,
-  @Query('date')
-  date: string,
-) {
-  return {
-    success: true,
-    message: 'Available slots fetched successfully',
-    data: await this.appointmentService.getAvailableSlots(
-      doctorId,
-      date,
-    ),
-  };
-}
+
+  @Patch(':id/reschedule')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.PATIENT)
+  async rescheduleappointment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RescheduleappointmentDto,
+    @Req() req,
+  ) {
+    const patient = await this.patientRepository.findOne({
+      where: {
+        user: {
+          id: req.user.id,
+        },
+      },
+    });
+
+    if (!patient) {
+      throw new NotFoundException('Patient profile not found');
+    }
+
+    return {
+      success: true,
+      message: 'appointment rescheduled successfully',
+      data: await this.appointmentService.rescheduleAppointment(
+        id,
+        patient.id,
+        dto,
+      ),
+    };
+  }
+
+  @Get('available-slots')
+  async getAvailableSlots(
+
+    @Query('date')
+    date: string,
+    @Query('doctorId', ParseIntPipe)
+    doctorId: number,
+
+  ) {
+    return {
+      success: true,
+      message: 'Available slots fetched successfully',
+      data: await this.appointmentService.getAvailableSlots(
+        doctorId,
+        date,
+      ),
+    };
+  }
 
   @Get(':id')
   async findOne(
@@ -189,6 +226,5 @@ async getAvailableSlots(
   ) {
     return this.appointmentService.findOne(id);
   }
-
 
 }

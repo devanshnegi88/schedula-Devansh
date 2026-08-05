@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 
 import { User } from '../users/user.entity';
-import { Appointment } from '../appointment/appointment.entity';
+import { appointment } from '../appointment/appointment.entity';
 
 @Entity()
 export class Patient {
@@ -35,8 +35,8 @@ export class Patient {
   user: User;
 
   @OneToMany(
-  () => Appointment,
-  (appointment) => appointment.patient,
-)
-appointments: Appointment[];
+    () => appointment,
+    (appointment) => appointment.patient,
+  )
+  appointments: appointment[];
 }
