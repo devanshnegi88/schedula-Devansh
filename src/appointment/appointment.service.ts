@@ -1167,12 +1167,30 @@ private async findAffectedAppointments(
     }
 
     // WAVE scheduling
-    if (
-      booking.slotStartTime! < newStartTime ||
-      booking.slotEndTime! > newEndTime
-    ) {
-      affectedAppointments.push(booking);
-    }
+    const bookingStart =
+  booking.slotStartTime?.slice(0, 5);
+
+const bookingEnd =
+  booking.slotEndTime?.slice(0, 5);
+
+console.log({
+  bookingStart,
+  bookingEnd,
+  newStartTime,
+  newEndTime,
+});
+
+if (
+  bookingStart! < newStartTime ||
+  bookingEnd! > newEndTime
+) {
+  console.log(
+    'Affected appointment:',
+    booking.id,
+  );
+
+  affectedAppointments.push(booking);
+}
   }
 
   return affectedAppointments;
@@ -1193,7 +1211,7 @@ private async findNextAvailableAppointmentSlot(
   let currentDate = new Date(startSearchingFrom);
 
   // Search next 30 doctor working days
-  for (let searched = 0; searched < 30; searched++) {
+  for (let searched = 0; searched < 3; searched++) {
 
     const date = currentDate.toISOString().split('T')[0];
 

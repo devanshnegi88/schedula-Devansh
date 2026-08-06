@@ -183,6 +183,112 @@ public generateWaveSlots(
   return slots;
 }
 
+// public async findAffectedAppointments(
+//   doctorId: number,
+//   availabilityId: number,
+//   effectiveDate: string,
+//   newStartTime: string,
+//   newEndTime: string,
+//   manager: EntityManager,
+// ): Promise<appointment[]> {
+
+//   const appointmentRepository =
+//     manager.getRepository(appointment);
+
+//   const appointments =
+//     await appointmentRepository.find({
+//       where: {
+//         doctor: {
+//           id: doctorId,
+//         },
+//         recurringAvailability: {
+//           id: availabilityId,
+//         },
+//         status: appointmentStatus.BOOKED,
+//       },
+//       relations: {
+//         doctor: true,
+//         patient: true,
+//         recurringAvailability: true,
+//       },
+//       order: {
+//         appointmentDate: 'ASC',
+//         createdAt: 'ASC',
+//       },
+//     });
+
+//   const affectedAppointments: appointment[] = [];
+
+//   for (const booking of appointments) {
+
+//     // Ignore appointments before the effective date
+//     if (booking.appointmentDate < effectiveDate) {
+//       continue;
+//     }
+
+//     const availability =
+//       booking.recurringAvailability;
+
+//     // ==========================
+//     // STREAM Scheduling
+//     // ==========================
+
+//     if (
+//       availability.schedulingType ===
+//       SchedulingType.STREAM
+//     ) {
+
+//       // Any stream appointment becomes invalid
+//       // if the availability window shrinks.
+//       affectedAppointments.push(booking);
+//       continue;
+
+//     }
+
+//     // ==========================
+//     // WAVE Scheduling
+//     // ==========================
+
+//     const bookingStart =
+//       booking.slotStartTime?.substring(0, 5);
+
+//     const bookingEnd =
+//       booking.slotEndTime?.substring(0, 5);
+
+//     console.log({
+//       appointmentId: booking.id,
+//       bookingStart,
+//       bookingEnd,
+//       newStartTime,
+//       newEndTime,
+//     });
+
+//     // Reschedule ONLY appointments outside the new window
+//     const startsBeforeWindow =
+//       bookingStart! < newStartTime;
+
+//     const endsAfterWindow =
+//       bookingEnd! > newEndTime;
+
+//     if (
+//       startsBeforeWindow ||
+//       endsAfterWindow
+//     ) {
+
+//       console.log(
+//         'Affected appointment:',
+//         booking.id,
+//       );
+
+//       affectedAppointments.push(booking);
+
+//     }
+
+//   }
+
+//   return affectedAppointments;
+// }
+
 public async findAffectedAppointments(
   doctorId: number,
   availabilityId: number,
@@ -213,7 +319,7 @@ public async findAffectedAppointments(
       },
       order: {
         appointmentDate: 'ASC',
-        createdAt: 'ASC',
+        slotStartTime: 'ASC',
       },
     });
 
@@ -238,33 +344,59 @@ public async findAffectedAppointments(
       SchedulingType.STREAM
     ) {
 
-      // Entire stream becomes invalid if the
-      // availability window changes.
-
-      if (
-        availability.startTime !== newStartTime ||
-        availability.endTime !== newEndTime
-      ) {
-        affectedAppointments.push(booking);
-      }
-
+      // Any booked appointment may become invalid
+      // when the stream window shrinks.
+      affectedAppointments.push(booking);
       continue;
+
     }
 
     // ==========================
     // WAVE Scheduling
     // ==========================
 
-    if (
-      booking.slotStartTime! < newStartTime ||
-      booking.slotEndTime! > newEndTime
-    ) {
-      affectedAppointments.push(booking);
+    const bookingStart =
+      booking.slotStartTime?.substring(0, 5);
+
+    const bookingEnd =
+      booking.slotEndTime?.substring(0, 5);
+
+    console.log({
+      appointmentId: booking.id,
+      bookingStart,
+      bookingEnd,
+      newStartTime,
+      newEndTime,
+    });
+
+    // Keep appointments completely inside the new window
+    const isInsideNewWindow =
+      bookingStart! >= newStartTime &&
+      bookingEnd! <= newEndTime;
+
+    if (isInsideNewWindow) {
+
+      console.log(
+        'Keeping appointment:',
+        booking.id,
+      );
+
+      continue;
+
     }
+
+    console.log(
+      'Affected appointment:',
+      booking.id,
+    );
+
+    affectedAppointments.push(booking);
+
   }
 
   return affectedAppointments;
 }
+
 
 public async findNextAvailableAppointmentSlot(
   doctorId: number,
@@ -280,71 +412,93 @@ public async findNextAvailableAppointmentSlot(
 
   let currentDate = new Date(originalAppointmentDate);
 
-  // Search next 30 available dates
-  for (let day = 0; day < 30; day++) {
+let recurringDaysChecked = 0;
+
+while (recurringDaysChecked < 2) {
 
     const searchDate = currentDate
       .toISOString()
       .split('T')[0];
 
-    try {
+    const dayOfWeek = new Date(searchDate)
+      .toLocaleDateString('en-US', {
+        weekday: 'long',
+      })
+      .toUpperCase();
 
-      const { availability } =
-        await this.resolveAvailability(
-          doctorId,
-          searchDate,
-          manager,
-        );
+    const availabilities =
+      await manager
+        .getRepository(RecurringAvailability)
+        .find({
+          where: {
+            doctor: {
+              id: doctorId,
+            },
+            day: dayOfWeek as any,
+          },
+          relations: {
+            doctor: true,
+          },
+          order: {
+            startTime: 'ASC',
+          },
+        });
 
-        console.log(
-  'Found availability:',
-  availability.day,
-  availability.startTime,
-  availability.endTime,
-);
+    // Doctor unavailable on this day
+    if (!availabilities.length) {
+
+    currentDate.setDate(
+      currentDate.getDate() + 1,
+    );
+
+    continue;
+}
+
+    // Check every availability window
+    for (const availability of availabilities) {
+
+      console.log(
+        'Checking availability:',
+        availability.day,
+        availability.startTime,
+        availability.endTime,
+      );
 
       // ===========================
       // STREAM Scheduling
       // ===========================
 
-      // ===========================
-// STREAM Scheduling
-// ===========================
+      if (
+        availability.schedulingType ===
+        SchedulingType.STREAM
+      ) {
 
-if (
-  availability.schedulingType ===
-  SchedulingType.STREAM
-) {
+        const booked =
+          await manager.count(appointment, {
+            where: {
+              recurringAvailability: {
+                id: availability.id,
+              },
+              appointmentDate: searchDate,
+              status: appointmentStatus.BOOKED,
+            },
+          });
 
-  const booked =
-    await manager
-      .getRepository(appointment)
-      .count({
-        where: {
-          recurringAvailability: {
-            id: availability.id,
-          },
-          appointmentDate: searchDate,
-          status: appointmentStatus.BOOKED,
-        },
-      });
+        if (
+          booked < (availability.capacity ?? 1)
+        ) {
 
-  if (
-    booked < (availability.capacity ?? 1)
-  ) {
+          return {
+            availability,
+            appointmentDate: searchDate,
+            slotStartTime: null,
+            slotEndTime: null,
+          };
 
-    return {
-      availability,
-      appointmentDate: searchDate,
-      slotStartTime: null,
-      slotEndTime: null,
-    };
+        }
 
-  }
-
-  currentDate.setDate(currentDate.getDate() + 1);
-continue;
-}
+        continue;
+      }
 
       // ===========================
       // WAVE Scheduling
@@ -396,13 +550,11 @@ continue;
 
       }
 
-    } catch {
-
-      // Doctor unavailable
-      // Continue searching
-
     }
 
+    recurringDaysChecked++;
+
+    // Move to next calendar day
     currentDate.setDate(
       currentDate.getDate() + 1,
     );
@@ -425,10 +577,39 @@ public async autoRescheduleAppointment(
       manager,
     );
 
+  // =====================================
+  // No available slot found
+  // Cancel appointment
+  // =====================================
+
   if (!nextSlot) {
-    throw new BadRequestException(
-      `Unable to automatically reschedule appointment #${appointmentEntity.id}. No available slot found.`,
+
+    // Preserve previous appointment details
+    appointmentEntity.previousSlotId =
+      appointmentEntity.slotId;
+
+    appointmentEntity.previousSlotStartTime =
+      appointmentEntity.slotStartTime;
+
+    appointmentEntity.previousSlotEndTime =
+      appointmentEntity.slotEndTime;
+
+    appointmentEntity.status =
+      appointmentStatus.CANCELLED;
+
+    appointmentEntity.rescheduledAutomatically =
+      true;
+
+    appointmentEntity.rescheduledAt =
+      new Date();
+
+    appointmentEntity.rescheduleReason =
+      'NO_AVAILABLE_SLOT_FOUND';
+
+    return await manager.save(
+      appointmentEntity,
     );
+
   }
 
   // =====================================
@@ -460,6 +641,9 @@ public async autoRescheduleAppointment(
   appointmentEntity.slotEndTime =
     nextSlot.slotEndTime;
 
+  appointmentEntity.status =
+    appointmentStatus.BOOKED;
+
   appointmentEntity.rescheduledAutomatically =
     true;
 
@@ -469,10 +653,10 @@ public async autoRescheduleAppointment(
   appointmentEntity.rescheduleReason =
     'DOCTOR_SHRUNK_AVAILABILITY';
 
-  appointmentEntity.status =
-    appointmentStatus.BOOKED;
+  return await manager.save(
+    appointmentEntity,
+  );
 
-  return await manager.save(appointmentEntity);
 }
 
 public async handleAvailabilityShrink(

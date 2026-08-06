@@ -37,24 +37,26 @@ export class RecurringAvailabilityController {
 ) {}
 
   @Post()
-  async create(
-    @Req() req,
-    @Body() dto: CreateRecurringAvailabilityDto,
-  ) {
-    const availability =
-      await this.recurringAvailabilityService.create(
-        req.user.id,
-        dto,
-      );
+async create(
+  @Req() req,
+  @Body() dto: CreateRecurringAvailabilityDto,
+) {
+  const availabilities =
+    await this.recurringAvailabilityService.create(
+      req.user.id,
+      dto,
+    );
 
-    return {
-      success: true,
-      message: 'Availability created successfully',
-      data: RecurringAvailabilityResponseDto.fromEntity(
+  return {
+    success: true,
+    message: 'Availability created successfully',
+    data: availabilities.map((availability) =>
+      RecurringAvailabilityResponseDto.fromEntity(
         availability,
       ),
-    };
-  }
+    ),
+  };
+}
 
   @Get()
   async findAll(@Req() req) {

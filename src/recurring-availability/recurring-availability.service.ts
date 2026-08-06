@@ -36,6 +36,59 @@ private readonly elasticSchedulingService: ElasticSchedulingService,
 private readonly dataSource: DataSource,
   ) { }
 
+
+  private validateAvailabilityUpdateWindow(
+  availability: RecurringAvailability,
+): void {
+
+  const now = new Date();
+
+  const today = now
+    .toLocaleDateString('en-US', {
+      weekday: 'long',
+    })
+    .toUpperCase();
+
+  // Only restrict today's availability
+  if (availability.day !== today) {
+    return;
+  }
+
+  const [hours, minutes] =
+    availability.startTime
+      .split(':')
+      .map(Number);
+
+  const startTime = new Date(now);
+
+  startTime.setHours(
+    hours,
+    minutes,
+    0,
+    0,
+  );
+
+  const diffInMilliseconds =
+    startTime.getTime() -
+    now.getTime();
+
+  const diffInHours =
+    diffInMilliseconds /
+    (1000 * 60 * 60);
+
+  if (
+    diffInHours >= 0 &&
+    diffInHours < 2
+  ) {
+
+    throw new BadRequestException(
+      'Availability cannot be updated within 2 hours of its start time.',
+    );
+
+  }
+
+}
+
   async create(
     doctorId: number,
     dto: CreateRecurringAvailabilityDto,
@@ -61,14 +114,17 @@ private readonly dataSource: DataSource,
       );
     }
 
-    const existing = await this.recurringRepository.find({
+    for (const day of dto.days) {
+
+  const existing =
+    await this.recurringRepository.find({
       where: {
         doctor: {
           user: {
             id: doctorId,
           },
         },
-        day: dto.day,
+        day,
       },
       relations: {
         doctor: {
@@ -77,41 +133,47 @@ private readonly dataSource: DataSource,
       },
     });
 
-    for (const availability of existing) {
-      const overlap =
-        dto.startTime < availability.endTime &&
-        dto.endTime > availability.startTime;
+  for (const availability of existing) {
 
-      if (overlap) {
-        throw new ConflictException(
-          'Availability overlaps with an existing slot',
-        );
-      }
-    }
+    const overlap =
+      dto.startTime < availability.endTime &&
+      dto.endTime > availability.startTime;
 
-    const duplicate =
-      await this.recurringRepository.findOne({
-        where: {
-          doctor: {
-            user: {
-              id: doctorId,
-            },
-          },
-          day: dto.day,
-          startTime: dto.startTime,
-          endTime: dto.endTime,
-        },
-        relations: {
-          doctor: true,
-        },
-      });
-
-
-    if (duplicate) {
+    if (overlap) {
       throw new ConflictException(
-        'Duplicate availability already exists',
+        `Availability overlaps on ${day}`,
       );
     }
+  }
+
+}
+
+    for (const day of dto.days) {
+
+  const duplicate =
+    await this.recurringRepository.findOne({
+      where: {
+        doctor: {
+          user: {
+            id: doctorId,
+          },
+        },
+        day,
+        startTime: dto.startTime,
+        endTime: dto.endTime,
+      },
+      relations: {
+        doctor: true,
+      },
+    });
+
+  if (duplicate) {
+    throw new ConflictException(
+      `Duplicate availability already exists for ${day}`,
+    );
+  }
+
+}
 
     // ===================================
     // STREAM VALIDATION
@@ -167,49 +229,54 @@ private readonly dataSource: DataSource,
       dto.bufferTime ??= 0;
     }
 
-    const availability =
-      this.recurringRepository.create({
-        ...dto,
-        doctor,
-      });
+    const { days, ...availabilityData } = dto;
 
-    const saved =
-      await this.recurringRepository.save(
-        availability,
-      );
+const savedAvailabilities: any[] = [];
 
-    // ===================================
-    // STREAM RESPONSE
-    // ===================================
+for (const day of days) {
 
-    if (
-      saved.schedulingType ===
-      SchedulingType.STREAM
-    ) {
-      return {
-        ...saved,
-        appointmentWindow: `${saved.startTime} - ${saved.endTime}`,
-        maxCapacity: saved.capacity,
-        tokenBased: true,
-      };
-    }
+  const availability =
+    this.recurringRepository.create({
+      ...availabilityData,
+      day,
+      doctor,
+    });
 
-    // ===================================
-    // WAVE RESPONSE
-    // ===================================
-
-    const slots = this.appointmentService.generateWaveSlots(
-      saved.startTime,
-      saved.endTime,
-      saved.slotDuration!,
-      saved.bufferTime ?? 0,
+  const saved =
+    await this.recurringRepository.save(
+      availability,
     );
 
-    return {
+  if (
+    saved.schedulingType ===
+    SchedulingType.STREAM
+  ) {
+    savedAvailabilities.push({
+      ...saved,
+      appointmentWindow: `${saved.startTime} - ${saved.endTime}`,
+      maxCapacity: saved.capacity,
+      tokenBased: true,
+    });
+  } else {
+
+    const slots =
+      this.appointmentService.generateWaveSlots(
+        saved.startTime,
+        saved.endTime,
+        saved.slotDuration!,
+        saved.bufferTime ?? 0,
+      );
+
+    savedAvailabilities.push({
       ...saved,
       slots,
-    };
+    });
+
   }
+
+}
+
+return savedAvailabilities;}
 
 
 
@@ -292,6 +359,12 @@ private readonly dataSource: DataSource,
         'Availability not found',
       );
     }
+    
+    // Prevent updates within 2 hours of start time.
+    
+    this.validateAvailabilityUpdateWindow(
+      availability,
+    );
 
     const oldStartTime =
       availability.startTime;
@@ -313,8 +386,7 @@ private readonly dataSource: DataSource,
 
     if (
       dto.schedulingType &&
-      dto.schedulingType !==
-        availability.schedulingType
+      dto.schedulingType !== availability.schedulingType
     ) {
       throw new BadRequestException(
         'Cannot change scheduling type',
@@ -329,9 +401,11 @@ private readonly dataSource: DataSource,
       newStartTime < oldStartTime ||
       newEndTime > oldEndTime;
 
-    Object.assign(availability, dto);
-
-    await manager.save(availability);
+    // ===========================
+    // SHRINK
+    // Find & reschedule affected appointments
+    // BEFORE updating availability
+    // ===========================
 
     if (isShrink) {
 
@@ -348,17 +422,29 @@ private readonly dataSource: DataSource,
 
     }
 
+    // ===========================
+    // Update availability
+    // ===========================
+
+    Object.assign(availability, dto);
+
+    await manager.save(availability);
+
+    // ===========================
+    // EXPAND
+    // ===========================
+
     if (isExpand) {
 
-  await this.elasticSchedulingService
-    .handleAvailabilityExpand(
-      availability,
-      oldStartTime,
-      oldEndTime,
-      manager,
-    );
+      await this.elasticSchedulingService
+        .handleAvailabilityExpand(
+          availability,
+          oldStartTime,
+          oldEndTime,
+          manager,
+        );
 
-}
+    }
 
     if (
       availability.schedulingType ===
