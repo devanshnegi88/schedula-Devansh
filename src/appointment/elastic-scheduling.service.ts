@@ -10,6 +10,7 @@ import {
   DataSource,
   EntityManager,
   Repository,
+  In,
 } from 'typeorm';
 
 import {
@@ -310,7 +311,10 @@ public async findAffectedAppointments(
         recurringAvailability: {
           id: availabilityId,
         },
-        status: appointmentStatus.BOOKED,
+        status: In([
+          appointmentStatus.BOOKED,
+          appointmentStatus.RESCHEDULED,
+        ]),
       },
       relations: {
         doctor: true,
@@ -403,6 +407,8 @@ public async findNextAvailableAppointmentSlot(
   originalAppointmentDate: string,
   originalSlotStartTime: string | null,
   manager: EntityManager,
+  reservedSlots: Set<string>,
+
 ): Promise<{
   availability: RecurringAvailability;
   appointmentDate: string;
@@ -474,15 +480,18 @@ while (recurringDaysChecked < 2) {
       ) {
 
         const booked =
-          await manager.count(appointment, {
-            where: {
-              recurringAvailability: {
-                id: availability.id,
-              },
-              appointmentDate: searchDate,
-              status: appointmentStatus.BOOKED,
-            },
-          });
+  await manager.count(appointment, {
+    where: {
+      recurringAvailability: {
+        id: availability.id,
+      },
+      appointmentDate: searchDate,
+      status: In([
+        appointmentStatus.BOOKED,
+        appointmentStatus.RESCHEDULED,
+      ]),
+    },
+  });
 
         if (
           booked < (availability.capacity ?? 1)
@@ -514,39 +523,51 @@ while (recurringDaysChecked < 2) {
 
       for (const slot of slots) {
 
-        // Don't move backwards on the same day
-        if (
-          searchDate === originalAppointmentDate &&
-          originalSlotStartTime &&
-          slot.startTime <= originalSlotStartTime
-        ) {
-          continue;
-        }
+  if (
+    searchDate === originalAppointmentDate &&
+    originalSlotStartTime &&
+    slot.startTime <= originalSlotStartTime
+  ) {
+    continue;
+  }
 
-        const booked =
-          await manager.count(appointment, {
-            where: {
-              recurringAvailability: {
-                id: availability.id,
-              },
-              appointmentDate: searchDate,
-              slotStartTime: slot.startTime,
-              status: appointmentStatus.BOOKED,
-            },
-          });
+  // NEW
+  const slotKey =
+    `${searchDate}_${slot.startTime}`;
 
-        if (
-          booked < (availability.capacity ?? 1)
-        ) {
+  if (reservedSlots.has(slotKey)) {
+    continue;
+  }
 
-          return {
-            availability,
-            appointmentDate: searchDate,
-            slotStartTime: slot.startTime,
-            slotEndTime: slot.endTime,
-          };
+  const booked =
+    await manager.count(appointment, {
+      where: {
+        recurringAvailability: {
+          id: availability.id,
+        },
+        appointmentDate: searchDate,
+        slotStartTime: slot.startTime,
+        status: In([
+          appointmentStatus.BOOKED,
+          appointmentStatus.RESCHEDULED,
+        ]),
+      },
+    });
 
-        }
+  if (
+    booked < (availability.capacity ?? 1)
+  ) {
+
+    return {
+      availability,
+      appointmentDate: searchDate,
+      slotStartTime: slot.startTime,
+      slotEndTime: slot.endTime,
+    };
+
+  }
+
+
 
       }
 
@@ -567,15 +588,17 @@ while (recurringDaysChecked < 2) {
 public async autoRescheduleAppointment(
   appointmentEntity: appointment,
   manager: EntityManager,
-): Promise<appointment> {
+  reservedSlots: Set<string>,
+): Promise<appointment>{
 
   const nextSlot =
-    await this.findNextAvailableAppointmentSlot(
-      appointmentEntity.doctor.id,
-      appointmentEntity.appointmentDate,
-      appointmentEntity.slotStartTime,
-      manager,
-    );
+  await this.findNextAvailableAppointmentSlot(
+    appointmentEntity.doctor.id,
+    appointmentEntity.appointmentDate,
+    appointmentEntity.slotStartTime,
+    manager,
+    reservedSlots,
+  );
 
   // =====================================
   // No available slot found
@@ -626,36 +649,43 @@ public async autoRescheduleAppointment(
     appointmentEntity.slotEndTime;
 
   // =====================================
-  // Update appointment
-  // =====================================
+// Update appointment
+// =====================================
 
-  appointmentEntity.recurringAvailability =
-    nextSlot.availability;
+  if (nextSlot.slotStartTime) {
+    reservedSlots.add(
+      `${nextSlot.appointmentDate}_${nextSlot.slotStartTime}`,
+    );
+  }
 
-  appointmentEntity.appointmentDate =
-    nextSlot.appointmentDate;
+appointmentEntity.recurringAvailability =
+  nextSlot.availability;
 
-  appointmentEntity.slotStartTime =
-    nextSlot.slotStartTime;
+appointmentEntity.appointmentDate =
+  nextSlot.appointmentDate;
 
-  appointmentEntity.slotEndTime =
-    nextSlot.slotEndTime;
+appointmentEntity.slotStartTime =
+  nextSlot.slotStartTime;
 
-  appointmentEntity.status =
-    appointmentStatus.BOOKED;
+appointmentEntity.slotEndTime =
+  nextSlot.slotEndTime;
 
-  appointmentEntity.rescheduledAutomatically =
-    true;
+// Changed
+appointmentEntity.status =
+  appointmentStatus.RESCHEDULED;
 
-  appointmentEntity.rescheduledAt =
-    new Date();
+appointmentEntity.rescheduledAutomatically =
+  true;
 
-  appointmentEntity.rescheduleReason =
-    'DOCTOR_SHRUNK_AVAILABILITY';
+appointmentEntity.rescheduledAt =
+  new Date();
 
-  return await manager.save(
-    appointmentEntity,
-  );
+appointmentEntity.rescheduleReason =
+  'DOCTOR_SHRUNK_AVAILABILITY';
+
+return await manager.save(
+  appointmentEntity,
+);
 
 }
 
@@ -698,14 +728,17 @@ public async handleAvailabilityShrink(
   });
 
   // Step 3: Reschedule one by one
-  for (const booking of affectedAppointments) {
+  const reservedSlots = new Set<string>();
 
-    await this.autoRescheduleAppointment(
-      booking,
-      manager,
-    );
+for (const booking of affectedAppointments) {
 
-  }
+  await this.autoRescheduleAppointment(
+    booking,
+    manager,
+    reservedSlots,
+  );
+
+}
 
 }
 

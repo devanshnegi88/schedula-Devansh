@@ -7,7 +7,9 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+
+import { In } from 'typeorm';
+import { InjectRepository} from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { appointmentStatus } from './appointment.entity';
 import { ForbiddenException } from '@nestjs/common';
@@ -167,7 +169,10 @@ export class appointmentService{
             id: availability.id,
           },
           appointmentDate: date,
-          status: appointmentStatus.BOOKED,
+          status: In([
+            appointmentStatus.BOOKED,
+            appointmentStatus.RESCHEDULED,
+          ]),
         },
       });
 
@@ -202,7 +207,10 @@ export class appointmentService{
             id: availability.id,
           },
           appointmentDate: date,
-          status: appointmentStatus.BOOKED,
+          status: In([
+            appointmentStatus.BOOKED,
+            appointmentStatus.RESCHEDULED,
+          ]),
         },
       });
       console.log('Requested date:', date);
@@ -416,7 +424,10 @@ console.log('Booked appointments:', bookedAppointments);
               id: availability.id,
             },
             appointmentDate,
-            status: appointmentStatus.BOOKED,
+            status: In([
+              appointmentStatus.BOOKED,
+              appointmentStatus.RESCHEDULED,
+            ]),
           },
         });
 
@@ -496,7 +507,10 @@ throw new BadRequestException({
             },
             appointmentDate,
             slotStartTime,
-            status: appointmentStatus.BOOKED,
+            status: In([
+              appointmentStatus.BOOKED,
+              appointmentStatus.RESCHEDULED,
+            ]),
           },
         });
 
@@ -594,7 +608,10 @@ public async findNextAvailableSlot(
           },
           appointmentDate,
           slotStartTime: slot.startTime,
-          status: appointmentStatus.BOOKED,
+          status: In([
+            appointmentStatus.BOOKED,
+            appointmentStatus.RESCHEDULED,
+          ]),
         },
       });
 
@@ -1130,7 +1147,10 @@ private async findAffectedAppointments(
     where: {
       doctor: { id: doctorId },
       recurringAvailability: { id: availabilityId },
-      status: appointmentStatus.BOOKED,
+      status: In([
+        appointmentStatus.BOOKED,
+        appointmentStatus.RESCHEDULED,
+      ]),
     },
     relations: {
       doctor: true,
@@ -1241,7 +1261,10 @@ private async findNextAvailableAppointmentSlot(
                 id: availability.id,
               },
               appointmentDate: date,
-              status: appointmentStatus.BOOKED,
+              status: In([
+                appointmentStatus.BOOKED,
+                appointmentStatus.RESCHEDULED,
+              ]),
             },
           });
 
@@ -1277,7 +1300,10 @@ private async findNextAvailableAppointmentSlot(
               },
               appointmentDate: date,
               slotStartTime: slot.startTime,
-              status: appointmentStatus.BOOKED,
+              status: In([
+                appointmentStatus.BOOKED,
+                appointmentStatus.RESCHEDULED,
+              ]),
             },
           });
 

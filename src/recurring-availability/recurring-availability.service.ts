@@ -19,9 +19,14 @@ import { appointmentService } from '../appointment/appointment.service';
 
 import { CreateRecurringAvailabilityDto } from './dto/create-recurring-availability.dto';
 import { UpdateRecurringAvailabilityDto } from './dto/update-recurring-availability.dto';
+import { ShrinkAvailabilityDto } from './dto/shrink-availability.dto';
+import { ExpandAvailabilityDto } from './dto/expand-availability.dto';
 
 @Injectable()
 export class RecurringAvailabilityService {
+  remove(id: number) {
+    throw new Error('Method not implemented.');
+  }
   constructor(
     @InjectRepository(RecurringAvailability)
     private readonly recurringRepository: Repository<RecurringAvailability>,
@@ -338,9 +343,236 @@ return savedAvailabilities;}
     return availability;
   }
 
-  async update(
+ async update(
   id: number,
   dto: UpdateRecurringAvailabilityDto,
+) {
+
+  const availability =
+    await this.recurringRepository.findOne({
+      where: {
+        id,
+      },
+    });
+
+  if (!availability) {
+    throw new NotFoundException(
+      'Availability not found',
+    );
+  }
+
+  const oldStartTime =
+    availability.startTime;
+
+  const oldEndTime =
+    availability.endTime;
+
+  const newStartTime =
+    dto.startTime ??
+    oldStartTime;
+
+  const newEndTime =
+    dto.endTime ??
+    oldEndTime;
+
+  // ============================
+  // Detect Shrink
+  // ============================
+
+  const isShrink =
+    newStartTime > oldStartTime ||
+    newEndTime < oldEndTime;
+
+  // ============================
+  // Detect Expand
+  // ============================
+
+  const isExpand =
+    newStartTime < oldStartTime ||
+    newEndTime > oldEndTime;
+
+  // ============================
+  // SHRINK
+  // ============================
+
+  if (isShrink) {
+
+    return this.shrinkAvailability(
+      id,
+      {
+        startTime: newStartTime,
+        endTime: newEndTime,
+      },
+    );
+
+  }
+
+  // ============================
+  // EXPAND
+  // ============================
+
+  if (isExpand) {
+
+    return this.expandAvailability(
+      id,
+      {
+        startTime: newStartTime,
+        endTime: newEndTime,
+      },
+    );
+
+  }
+
+  // ============================
+  // NORMAL UPDATE
+  // ============================
+
+  Object.assign(
+    availability,
+    dto,
+  );
+
+  const updated =
+    await this.recurringRepository.save(
+      availability,
+    );
+
+  if (
+    updated.schedulingType ===
+    SchedulingType.WAVE
+  ) {
+
+    return {
+      ...updated,
+      slots:
+        this.appointmentService.generateWaveSlots(
+          updated.startTime,
+          updated.endTime,
+          updated.slotDuration!,
+          updated.bufferTime ?? 0,
+        ),
+    };
+
+  }
+
+  return updated;
+
+}
+
+  async shrinkAvailability(
+  id: number,
+  dto: ShrinkAvailabilityDto,
+) {
+  return this.dataSource.transaction(async (manager) => {
+
+    const availability =
+      await manager
+        .getRepository(RecurringAvailability)
+        .findOne({
+          where: {
+            id,
+          },
+          relations: {
+            doctor: true,
+          },
+        });
+
+    if (!availability) {
+      throw new NotFoundException(
+        'Availability not found',
+      );
+    }
+
+    // Prevent update within 2 hours
+    this.validateAvailabilityUpdateWindow(
+      availability,
+    );
+
+    const oldStartTime =
+      availability.startTime;
+
+    const oldEndTime =
+      availability.endTime;
+
+    const newStartTime =
+      dto.startTime;
+
+    const newEndTime =
+      dto.endTime;
+
+    if (newStartTime >= newEndTime) {
+      throw new BadRequestException(
+        'Start time must be before end time',
+      );
+    }
+
+    // Ensure this is actually a shrink
+    const isShrink =
+      newStartTime > oldStartTime ||
+      newEndTime < oldEndTime;
+
+    if (!isShrink) {
+      throw new BadRequestException(
+        'The provided time range is not a shrink.',
+      );
+    }
+
+    // Find affected appointments BEFORE updating availability
+    await this.elasticSchedulingService
+      .handleAvailabilityShrink(
+        availability,
+        newStartTime,
+        newEndTime,
+        new Date()
+          .toISOString()
+          .split('T')[0],
+        manager,
+      );
+
+    // Update availability
+    // Update availability first
+availability.startTime = newStartTime;
+availability.endTime = newEndTime;
+
+await manager.save(availability);
+
+// Now find affected appointments and reschedule
+await this.elasticSchedulingService.handleAvailabilityShrink(
+  availability,
+  newStartTime,
+  newEndTime,
+  new Date().toISOString().split('T')[0],
+  manager,
+);
+
+    // Return WAVE slots
+    if (
+      availability.schedulingType ===
+      SchedulingType.WAVE
+    ) {
+
+      return {
+        ...availability,
+        slots:
+          this.appointmentService.generateWaveSlots(
+            availability.startTime,
+            availability.endTime,
+            availability.slotDuration!,
+            availability.bufferTime ?? 0,
+          ),
+      };
+
+    }
+
+    // STREAM
+    return availability;
+
+  });
+}
+
+  async expandAvailability(
+  id: number,
+  dto: ExpandAvailabilityDto,
 ) {
   return this.dataSource.transaction(async (manager) => {
 
@@ -359,9 +591,7 @@ return savedAvailabilities;}
         'Availability not found',
       );
     }
-    
-    // Prevent updates within 2 hours of start time.
-    
+
     this.validateAvailabilityUpdateWindow(
       availability,
     );
@@ -373,10 +603,10 @@ return savedAvailabilities;}
       availability.endTime;
 
     const newStartTime =
-      dto.startTime ?? oldStartTime;
+      dto.startTime;
 
     const newEndTime =
-      dto.endTime ?? oldEndTime;
+      dto.endTime;
 
     if (newStartTime >= newEndTime) {
       throw new BadRequestException(
@@ -384,67 +614,32 @@ return savedAvailabilities;}
       );
     }
 
-    if (
-      dto.schedulingType &&
-      dto.schedulingType !== availability.schedulingType
-    ) {
-      throw new BadRequestException(
-        'Cannot change scheduling type',
-      );
-    }
-
-    const isShrink =
-      newStartTime > oldStartTime ||
-      newEndTime < oldEndTime;
-
     const isExpand =
       newStartTime < oldStartTime ||
       newEndTime > oldEndTime;
 
-    // ===========================
-    // SHRINK
-    // Find & reschedule affected appointments
-    // BEFORE updating availability
-    // ===========================
-
-    if (isShrink) {
-
-      await this.elasticSchedulingService
-        .handleAvailabilityShrink(
-          availability,
-          newStartTime,
-          newEndTime,
-          new Date()
-            .toISOString()
-            .split('T')[0],
-          manager,
-        );
-
+    if (!isExpand) {
+      throw new BadRequestException(
+        'The provided time range is not an expansion.',
+      );
     }
 
-    // ===========================
-    // Update availability
-    // ===========================
+    Object.assign(
+      availability,
+      dto,
+    );
 
-    Object.assign(availability, dto);
+    await manager.save(
+      availability,
+    );
 
-    await manager.save(availability);
-
-    // ===========================
-    // EXPAND
-    // ===========================
-
-    if (isExpand) {
-
-      await this.elasticSchedulingService
-        .handleAvailabilityExpand(
-          availability,
-          oldStartTime,
-          oldEndTime,
-          manager,
-        );
-
-    }
+    await this.elasticSchedulingService
+      .handleAvailabilityExpand(
+        availability,
+        oldStartTime,
+        oldEndTime,
+        manager,
+      );
 
     if (
       availability.schedulingType ===
@@ -468,17 +663,4 @@ return savedAvailabilities;}
 
   });
 }
-
-  async remove(id: number) {
-    const availability = await this.findOne(id);
-
-    await this.recurringRepository.remove(
-      availability as RecurringAvailability,
-    );
-
-    return {
-      message:
-        'Recurring availability deleted successfully',
-    };
-  }
 }

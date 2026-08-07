@@ -13,6 +13,7 @@ import { RecurringAvailability } from '../recurring-availability/entities/recurr
 
 export enum appointmentStatus {
   BOOKED = 'BOOKED',
+  RESCHEDULED = 'RESCHEDULED',
   CANCELLED = 'CANCELLED',
 }
 
