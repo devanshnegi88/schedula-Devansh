@@ -1,4 +1,6 @@
 import {
+  IsArray,
+  ArrayNotEmpty,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -12,8 +14,10 @@ import { Day } from '../../enums/day.enum';
 import { SchedulingType } from '../entities/recurring-availability.entity';
 
 export class CreateRecurringAvailabilityDto {
-  @IsEnum(Day)
-  day: Day;
+  @IsArray()
+@ArrayNotEmpty()
+@IsEnum(Day, { each: true })
+days: Day[];
 
   @IsNotEmpty()
   @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
