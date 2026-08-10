@@ -12,6 +12,7 @@ import { PatientModule } from './patient/patient.module';
 import { RecurringAvailabilityModule } from './recurring-availability/recurring-availability.module';
 import { CustomAvailabilityModule } from './custom-availability/custom-availability.module';
 import { AppointmentModule } from './appointment/appointment.module';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { AppointmentModule } from './appointment/appointment.module';
     RecurringAvailabilityModule,
     CustomAvailabilityModule,
     AppointmentModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],
