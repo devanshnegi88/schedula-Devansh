@@ -15,10 +15,12 @@ import {
 
 import { RecurringAvailabilityService } from './recurring-availability.service';
 import { CreateRecurringAvailabilityDto } from './dto/create-recurring-availability.dto';
-import { UpdateRecurringAvailabilityDto } from './dto/update-recurring-availability.dto';
+// import { UpdateRecurringAvailabilityDto } from './dto/update-recurring-availability.dto';
 import { RecurringAvailabilityResponseDto } from './dto/recurring-availability-response.dto';
 import { CustomAvailabilityService } from '../custom-availability/custom-availability.service';
 import { CustomAvailabilityResponseDto } from '../custom-availability/dto/custom-availability-response.dto';
+import { ShrinkAvailabilityDto } from './dto/shrink-availability.dto';
+import { ExpandAvailabilityDto } from './dto/expand-availability.dto';
 
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -26,6 +28,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 
 import { Role } from '../users/user.entity';
+import { UpdateRecurringAvailabilityDto } from './dto/update-recurring-availability.dto';
 
 @Controller('doctor/availability')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -37,24 +40,26 @@ export class RecurringAvailabilityController {
 ) {}
 
   @Post()
-  async create(
-    @Req() req,
-    @Body() dto: CreateRecurringAvailabilityDto,
-  ) {
-    const availability =
-      await this.recurringAvailabilityService.create(
-        req.user.id,
-        dto,
-      );
+async create(
+  @Req() req,
+  @Body() dto: CreateRecurringAvailabilityDto,
+) {
+  const availabilities =
+    await this.recurringAvailabilityService.create(
+      req.user.id,
+      dto,
+    );
 
-    return {
-      success: true,
-      message: 'Availability created successfully',
-      data: RecurringAvailabilityResponseDto.fromEntity(
+  return {
+    success: true,
+    message: 'Availability created successfully',
+    data: availabilities.map((availability) =>
+      RecurringAvailabilityResponseDto.fromEntity(
         availability,
       ),
-    };
-  }
+    ),
+  };
+}
 
   @Get()
   async findAll(@Req() req) {
@@ -150,6 +155,48 @@ async findOne(
   return {
     success: true,
     message: 'Availability fetched successfully',
+    data: RecurringAvailabilityResponseDto.fromEntity(
+      availability,
+    ),
+  };
+}
+
+
+
+@Patch(':id/shrink')
+async shrinkAvailability(
+  @Param('id', ParseIntPipe) id: number,
+  @Body() dto: ShrinkAvailabilityDto,
+) {
+  const availability =
+    await this.recurringAvailabilityService.shrinkAvailability(
+      id,
+      dto,
+    );
+
+  return {
+    success: true,
+    message: 'Availability shrunk successfully',
+    data: RecurringAvailabilityResponseDto.fromEntity(
+      availability,
+    ),
+  };
+}
+
+@Patch(':id/expand')
+async expandAvailability(
+  @Param('id', ParseIntPipe) id: number,
+  @Body() dto: ExpandAvailabilityDto,
+) {
+  const availability =
+    await this.recurringAvailabilityService.expandAvailability(
+      id,
+      dto,
+    );
+
+  return {
+    success: true,
+    message: 'Availability expanded successfully',
     data: RecurringAvailabilityResponseDto.fromEntity(
       availability,
     ),
