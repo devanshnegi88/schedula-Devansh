@@ -40,4 +40,9 @@ export class Notification {
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @Column({
+  default: false,
+})
+isRead: boolean;
 }

@@ -87,96 +87,314 @@ export class NotificationService {
   // GET ALL NOTIFICATIONS FOR PATIENT
   // ============================================================
 
-  async findAllForPatient(
-    patientId: number,
-  ) {
-    return this.notificationRepository.find({
+
+async findAllForPatient(patientId: number) {
+  const notifications =
+    await this.notificationRepository.find({
       where: {
         patientId,
       },
-
       order: {
         createdAt: 'DESC',
       },
     });
-  }
+
+  const totalCount = notifications.length;
+
+  const unreadCount = notifications.filter(
+    (notification) => notification.isRead === false,
+  ).length;
+
+  return {
+    notifications,
+    totalCount,
+    unreadCount,
+  };
+}
 
   // ============================================================
   // GET LATEST NOTIFICATION FOR APPOINTMENT
   // ============================================================
 
   async getLatestAppointmentNotification(
-    appointmentId: number,
-    userId: number,
-  ) {
-    const patient =
-      await this.patientRepository.findOne({
-        where: {
-          user: {
-            id: userId,
-          },
+  appointmentId: number,
+  userId: number,
+) {
+  const patient =
+    await this.patientRepository.findOne({
+      where: {
+        user: {
+          id: userId,
         },
-      });
+      },
+    });
 
-    if (!patient) {
-      throw new NotFoundException(
-        'Patient profile not found',
-      );
-    }
-
-    const notification =
-      await this.notificationRepository.findOne({
-        where: {
-          appointmentId,
-          patientId: patient.id,
-        },
-
-        order: {
-          createdAt: 'DESC',
-        },
-      });
-
-    if (!notification) {
-      throw new NotFoundException(
-        'Notification not found for this appointment',
-      );
-    }
-
-    return notification;
+  if (!patient) {
+    throw new NotFoundException(
+      'Patient profile not found',
+    );
   }
+
+  const notification =
+    await this.notificationRepository.findOne({
+      where: {
+        appointmentId,
+        patientId: patient.id,
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+
+  if (!notification) {
+    throw new NotFoundException(
+      'Notification not found for this appointment',
+    );
+  }
+
+  return {
+    id: notification.id,
+    patientId: notification.patientId,
+    appointmentId: notification.appointmentId,
+    type: notification.type,
+    title: notification.title,
+    message: notification.message,
+    eventId: notification.eventId,
+    isRead: notification.isRead,
+    createdAt: notification.createdAt,
+  };
+}
 
   // ============================================================
   // GET ALL NOTIFICATIONS FOR APPOINTMENT
   // ============================================================
 
   async getAppointmentNotifications(
-    appointmentId: number,
-    userId: number,
-  ) {
-    const patient =
-      await this.patientRepository.findOne({
-        where: {
-          user: {
-            id: userId,
-          },
+  appointmentId: number,
+  userId: number,
+) {
+  const patient =
+    await this.patientRepository.findOne({
+      where: {
+        user: {
+          id: userId,
         },
-      });
+      },
+    });
 
-    if (!patient) {
-      throw new NotFoundException(
-        'Patient profile not found',
-      );
-    }
+  if (!patient) {
+    throw new NotFoundException(
+      'Patient profile not found',
+    );
+  }
 
-    return this.notificationRepository.find({
+  const notifications =
+    await this.notificationRepository.find({
       where: {
         appointmentId,
         patientId: patient.id,
       },
-
       order: {
         createdAt: 'DESC',
       },
     });
+
+  const totalCount = notifications.length;
+
+  const unreadCount = notifications.filter(
+    (notification) =>
+      notification.isRead === false,
+  ).length;
+
+  return {
+    notifications,
+    totalCount,
+    unreadCount,
+  };
+}
+
+
+
+  async markAsRead(
+  notificationId: number,
+  userId: number,
+) {
+  const patient = await this.patientRepository.findOne({
+    where: {
+      user: {
+        id: userId,
+      },
+    },
+  });
+
+  if (!patient) {
+    throw new NotFoundException(
+      'Patient profile not found',
+    );
   }
+
+  const notification =
+    await this.notificationRepository.findOne({
+      where: {
+        id: notificationId,
+        patientId: patient.id,
+      },
+    });
+
+  if (!notification) {
+    throw new NotFoundException(
+      'Notification not found',
+    );
+  }
+
+  notification.isRead = true;
+
+  await this.notificationRepository.save(notification);
+
+  return {
+    id: notification.id,
+    patientId: notification.patientId,
+    appointmentId: notification.appointmentId,
+    type: notification.type,
+    title: notification.title,
+    message: notification.message,
+    eventId: notification.eventId,
+    isRead: notification.isRead,
+    createdAt: notification.createdAt,
+  };
+}
+
+async markAllAsRead(
+  userId: number,
+) {
+  const patient =
+    await this.patientRepository.findOne({
+      where: {
+        user: {
+          id: userId,
+        },
+      },
+    });
+
+  if (!patient) {
+    throw new NotFoundException(
+      'Patient profile not found',
+    );
+  }
+
+  const result =
+    await this.notificationRepository.update(
+      {
+        patientId: patient.id,
+        isRead: false,
+      },
+      {
+        isRead: true,
+      },
+    );
+
+  return {
+    updatedCount: result.affected ?? 0,
+    unreadCount: 0,
+  };
+}
+
+// ============================================================
+// DELETE ONE NOTIFICATION
+// ============================================================
+
+async deleteNotification(
+  notificationId: number,
+  userId: number,
+) {
+  const patient =
+    await this.patientRepository.findOne({
+      where: {
+        user: {
+          id: userId,
+        },
+      },
+    });
+
+  if (!patient) {
+    throw new NotFoundException(
+      'Patient profile not found',
+    );
+  }
+
+  const notification =
+    await this.notificationRepository.findOne({
+      where: {
+        id: notificationId,
+        patientId: patient.id,
+      },
+    });
+
+  if (!notification) {
+    throw new NotFoundException(
+      'Notification not found',
+    );
+  }
+
+  await this.notificationRepository.delete(
+    notification.id,
+  );
+
+  return {
+    id: notification.id,
+    message: 'Notification deleted successfully',
+  };
+}
+
+// ============================================================
+// DELETE ALL NOTIFICATIONS
+// ============================================================
+
+async deleteAllNotifications(
+  userId: number,
+) {
+  const patient =
+    await this.patientRepository.findOne({
+      where: {
+        user: {
+          id: userId,
+        },
+      },
+    });
+
+  if (!patient) {
+    throw new NotFoundException(
+      'Patient profile not found',
+    );
+  }
+
+  const result =
+    await this.notificationRepository.delete({
+      patientId: patient.id,
+    });
+
+  return {
+    deletedCount: result.affected ?? 0,
+    message: 'All notifications deleted successfully',
+  };
+}
+
+async getPatientByUserId(userId: number) {
+  const patient =
+    await this.patientRepository.findOne({
+      where: {
+        user: {
+          id: userId,
+        },
+      },
+    });
+
+  if (!patient) {
+    throw new NotFoundException(
+      'Patient profile not found',
+    );
+  }
+
+  return patient;
+}
 }
