@@ -106,6 +106,19 @@ async getAppointmentNotifications(
   };
 }
 
+@Patch('read-all')
+@UseGuards(JwtAuthGuard)
+async markAllAsRead(@Req() req) {
+  await this.notificationService.markAllAsRead(
+    req.user.id,
+  );
+
+  return {
+    success: true,
+    message: 'All notifications marked as read',
+  };
+}
+
   @Patch(':id/read')
 @UseGuards(JwtAuthGuard)
 async markAsRead(
@@ -124,18 +137,7 @@ async markAsRead(
 }
 
 
-@Patch('read-all')
-@UseGuards(JwtAuthGuard)
-async markAllAsRead(@Req() req) {
-  await this.notificationService.markAllAsRead(
-    req.user.id,
-  );
 
-  return {
-    success: true,
-    message: 'All notifications marked as read',
-  };
-}
 
 @Delete('delete-all')
 @UseGuards(JwtAuthGuard)
