@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { EmailService } from '../email/email.service';
 import { ForbiddenException } from '@nestjs/common';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -40,7 +41,29 @@ export class appointmentController {
 
     @InjectRepository(Doctor)
     private readonly doctorRepository: Repository<Doctor>,
+
+    private readonly emailService: EmailService,
   ) {}
+
+
+  @Get('test-email')
+async testEmail() {
+  await this.emailService.sendEmail(
+    'devanshnegi88@gmail.com',
+    'SendGrid Test',
+    `
+      <h1>SendGrid is working!</h1>
+
+      <p>This is a test email from the Doctor Management System.</p>
+
+      <p>If you received this email, your SendGrid integration is working correctly.</p>
+    `,
+  );
+
+  return {
+    message: 'Email sent successfully',
+  };
+}
 
   // ============================================================
   // BOOK APPOINTMENT

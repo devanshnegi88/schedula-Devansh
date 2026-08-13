@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 
 import { InjectRepository } from '@nestjs/typeorm';
+import { Patient } from '../patient/patient.entity';
+import { EmailService } from '../email/email.service';
 
 import {
   DataSource,
@@ -54,6 +56,9 @@ export class ElasticSchedulingService {
 
   private readonly notificationService:
     NotificationService,
+
+    private readonly emailService:
+  EmailService,
 ) {}
 
 
@@ -622,7 +627,7 @@ public async autoRescheduleAppointment(
         .recurringAvailability
         .startTime;
 
-    // Preserve previous appointment details
+    // Preserve previous slot details
     appointmentEntity.previousSlotId =
       appointmentEntity.slotId;
 
@@ -651,8 +656,7 @@ public async autoRescheduleAppointment(
       );
 
     // =====================================
-    // CREATE AUTOMATIC CANCELLATION
-    // NOTIFICATION
+    // EXISTING DATABASE NOTIFICATION
     // =====================================
 
     await this.notificationService
@@ -680,6 +684,114 @@ public async autoRescheduleAppointment(
         manager,
       );
 
+    // =====================================
+    // AUTOMATIC CANCELLATION EMAIL
+    // =====================================
+
+    try {
+
+      const patient =
+        await manager.findOne(
+          Patient,
+          {
+            where: {
+              id:
+                cancelledAppointment
+                  .patient.id,
+            },
+
+            relations: {
+              user: true,
+            },
+          },
+        );
+
+      if (
+        patient?.user?.email
+      ) {
+
+        await this.emailService.sendEmail(
+          patient.user.email,
+
+          'Appointment Automatically Cancelled',
+
+          `
+            <div
+              style="
+                font-family: Arial, sans-serif;
+                max-width: 600px;
+                margin: auto;
+                padding: 20px;
+              "
+            >
+
+              <h2>
+                Appointment Automatically Cancelled
+              </h2>
+
+              <p>
+                Hello
+                ${patient.user.name ?? 'Patient'},
+              </p>
+
+              <p>
+                Unfortunately, your appointment
+                has been automatically cancelled
+                because no alternative appointment
+                slot was available after the
+                doctor's availability changed.
+              </p>
+
+              <p>
+                <strong>Doctor:</strong>
+                ${cancelledAppointment.doctor.fullName}
+              </p>
+
+              <p>
+                <strong>Date:</strong>
+                ${cancelledAppointment.appointmentDate}
+              </p>
+
+              <p>
+                <strong>Previous Time:</strong>
+                ${previousTime}
+              </p>
+
+              <p>
+                <strong>Appointment ID:</strong>
+                #${cancelledAppointment.id}
+              </p>
+
+              <p>
+                Please book another available
+                appointment slot.
+              </p>
+
+            </div>
+          `,
+        );
+
+        console.log(
+          `Automatic cancellation email sent for Appointment #${cancelledAppointment.id} to ${patient.user.email}`,
+        );
+
+      } else {
+
+        console.warn(
+          `Appointment #${cancelledAppointment.id} was automatically cancelled, but patient email was not found.`,
+        );
+
+      }
+
+    } catch (error) {
+
+      console.error(
+        `Appointment #${cancelledAppointment.id} was automatically cancelled, but email notification failed:`,
+        error,
+      );
+
+    }
+
     return cancelledAppointment;
   }
 
@@ -700,9 +812,11 @@ public async autoRescheduleAppointment(
 
   // Reserve the selected slot
   if (nextSlot.slotStartTime) {
+
     reservedSlots.add(
       `${nextSlot.appointmentDate}_${nextSlot.slotStartTime}`,
     );
+
   }
 
   // Update appointment
@@ -736,8 +850,7 @@ public async autoRescheduleAppointment(
     );
 
   // =====================================
-  // CREATE AUTOMATIC RESCHEDULE
-  // NOTIFICATION
+  // EXISTING DATABASE NOTIFICATION
   // =====================================
 
   const newTime =
@@ -770,6 +883,112 @@ public async autoRescheduleAppointment(
 
       manager,
     );
+
+  // =====================================
+  // AUTOMATIC RESCHEDULE EMAIL
+  // =====================================
+
+  try {
+
+    const patient =
+      await manager.findOne(
+        Patient,
+        {
+          where: {
+            id:
+              savedAppointment
+                .patient.id,
+          },
+
+          relations: {
+            user: true,
+          },
+        },
+      );
+
+    if (
+      patient?.user?.email
+    ) {
+
+      await this.emailService.sendEmail(
+        patient.user.email,
+
+        'Appointment Automatically Rescheduled',
+
+        `
+          <div
+            style="
+              font-family: Arial, sans-serif;
+              max-width: 600px;
+              margin: auto;
+              padding: 20px;
+            "
+          >
+
+            <h2>
+              Appointment Automatically Rescheduled
+            </h2>
+
+            <p>
+              Hello
+              ${patient.user.name ?? 'Patient'},
+            </p>
+
+            <p>
+              Your appointment has been
+              automatically rescheduled because
+              of a change in the doctor's
+              availability.
+            </p>
+
+            <p>
+              <strong>Doctor:</strong>
+              ${savedAppointment.doctor.fullName}
+            </p>
+
+            <p>
+              <strong>New Date:</strong>
+              ${savedAppointment.appointmentDate}
+            </p>
+
+            <p>
+              <strong>New Time:</strong>
+              ${newTime}
+            </p>
+
+            <p>
+              <strong>Appointment ID:</strong>
+              #${savedAppointment.id}
+            </p>
+
+            <p>
+              Please note your new appointment time.
+            </p>
+
+          </div>
+        `,
+      );
+
+      console.log(
+        `Automatic reschedule email sent for Appointment #${savedAppointment.id} to ${patient.user.email}`,
+      );
+
+    } else {
+
+      console.warn(
+        `Appointment #${savedAppointment.id} was automatically rescheduled, but patient email was not found.`,
+      );
+
+    }
+
+  } catch (error) {
+
+    console.error(
+      `Appointment #${savedAppointment.id} was automatically rescheduled, but email notification failed:`,
+      error,
+    );
+
+  }
 
   return savedAppointment;
 }

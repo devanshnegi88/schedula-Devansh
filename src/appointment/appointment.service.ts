@@ -4,6 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import {
+  appointmentBookedTemplate,
+  appointmentRescheduledTemplate,
+  appointmentCancelledTemplate,
+} from '../email/email.templates';
+
 import { In } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
@@ -18,6 +24,7 @@ import { RescheduleappointmentDto } from './reschedule-appointment.dto';
 
 import { NotificationService } from '../notification/notification.service';
 import { NotificationType } from '../notification/notification-type.enum';
+import { EmailService } from '../email/email.service';
 
 import { appointment } from './appointment.entity';
 import { Doctor } from '../doctor/doctor.entity';
@@ -52,6 +59,8 @@ export class appointmentService {
     private readonly dataSource: DataSource,
 
     private readonly notificationService: NotificationService,
+
+    private readonly emailService: EmailService,
   ) {}
 
   // ============================================================
@@ -322,23 +331,24 @@ export class appointmentService {
   // ============================================================
 
   async bookAppointment(
-    doctorId: number,
-    patientId: number,
-    availabilityId: number,
-    appointmentDate: string,
-    slotStartTime?: string,
-  ) {
-    return this.dataSource.transaction(
+  doctorId: number,
+  patientId: number,
+  availabilityId: number,
+  appointmentDate: string,
+  slotStartTime?: string,
+) {
+  const result =
+    await this.dataSource.transaction(
       async (manager) => {
         const doctor =
-          await manager.findOne(
-            Doctor,
-            {
-              where: {
-                id: doctorId,
-              },
+          await manager.findOne(Doctor, {
+            where: {
+              id: doctorId,
             },
-          );
+            relations: {
+              user: true,
+            },
+          });
 
         if (!doctor) {
           throw new NotFoundException(
@@ -360,48 +370,52 @@ export class appointmentService {
           );
 
         if (!patient) {
-  throw new NotFoundException(
-    'Patient not found',
-  );
-}
+          throw new NotFoundException(
+            'Patient not found',
+          );
+        }
 
-// ============================================================
-// PREVENT MULTIPLE ACTIVE APPOINTMENTS
-// WITH THE SAME DOCTOR
-// ============================================================
+        // ============================================================
+        // PREVENT MULTIPLE ACTIVE APPOINTMENTS
+        // WITH THE SAME DOCTOR
+        // ============================================================
 
-const existingAppointment =
-  await manager.findOne(appointment, {
-    where: {
-      patient: {
-        id: patientId,
-      },
+        const existingAppointment =
+          await manager.findOne(
+            appointment,
+            {
+              where: {
+                patient: {
+                  id: patientId,
+                },
 
-      doctor: {
-        id: doctorId,
-      },
+                doctor: {
+                  id: doctorId,
+                },
 
-      status: In([
-        appointmentStatus.BOOKED,
-        appointmentStatus.RESCHEDULED,
-      ]),
-    },
-  });
+                status: In([
+                  appointmentStatus.BOOKED,
+                  appointmentStatus.RESCHEDULED,
+                ]),
+              },
+            },
+          );
 
-if (existingAppointment) {
-  throw new BadRequestException(
-    `You already have an active appointment with this doctor (Appointment #${existingAppointment.id}). Please cancel or reschedule it before booking another appointment with this doctor.`,
-  );
-}
+        if (existingAppointment) {
+          throw new BadRequestException(
+            `You already have an active appointment with this doctor (Appointment #${existingAppointment.id}). Please cancel or reschedule it before booking another appointment with this doctor.`,
+          );
+        }
 
-const {
-  source,
-  availability,
-} = await this.resolveAvailability(
-  doctorId,
-  appointmentDate,
-  manager,
-);
+        const {
+          source,
+          availability,
+        } =
+          await this.resolveAvailability(
+            doctorId,
+            appointmentDate,
+            manager,
+          );
 
         if (
           availability.id !==
@@ -488,11 +502,14 @@ const {
                 patient: {
                   id: patientId,
                 },
+
                 recurringAvailability: {
                   id: availability.id,
                 },
+
                 appointmentDate,
               },
+
               relations: {
                 patient: true,
                 recurringAvailability:
@@ -511,9 +528,9 @@ const {
           );
         }
 
-        // ==========================
+        // ============================================================
         // STREAM SCHEDULING
-        // ==========================
+        // ============================================================
 
         if (
           availability.schedulingType ===
@@ -545,7 +562,9 @@ const {
                   recurringAvailability: {
                     id: availability.id,
                   },
+
                   appointmentDate,
+
                   status: In([
                     appointmentStatus.BOOKED,
                     appointmentStatus.RESCHEDULED,
@@ -568,6 +587,7 @@ const {
             throw new BadRequestException({
               message:
                 'Stream is full',
+
               nextAvailable:
                 next,
             });
@@ -576,13 +596,19 @@ const {
           const newAppointment =
             this.appointmentRepository.create({
               doctor,
+
               patient,
+
               recurringAvailability:
                 availability,
+
               appointmentDate,
+
               tokenNumber:
                 bookedPatients + 1,
+
               slotStartTime: null,
+
               slotEndTime: null,
             });
 
@@ -613,19 +639,33 @@ const {
                   message:
                     `Your appointment with ${doctor.fullName} has been booked successfully for ${appointmentDate} at ${availability.startTime}.`,
                 },
+
                 manager,
               );
 
           return {
             appointment:
               savedAppointment,
+
             notification,
+
+            patientEmail:
+              patient.user.email,
+
+            patientName:
+              patient.user.name,
+
+            doctorName:
+              doctor.fullName,
+
+            appointmentTime:
+              availability.startTime,
           };
         }
 
-        // ==========================
+        // ============================================================
         // WAVE SCHEDULING
-        // ==========================
+        // ============================================================
 
         if (
           availability.schedulingType ===
@@ -679,8 +719,11 @@ const {
                   recurringAvailability: {
                     id: availability.id,
                   },
+
                   appointmentDate,
+
                   slotStartTime,
+
                   status: In([
                     appointmentStatus.BOOKED,
                     appointmentStatus.RESCHEDULED,
@@ -703,6 +746,7 @@ const {
             throw new BadRequestException({
               message:
                 'Selected slot is full',
+
               nextAvailable:
                 next,
             });
@@ -711,13 +755,19 @@ const {
           const newAppointment =
             this.appointmentRepository.create({
               doctor,
+
               patient,
+
               recurringAvailability:
                 availability,
+
               appointmentDate,
+
               tokenNumber: null,
+
               slotStartTime:
                 selected.startTime,
+
               slotEndTime:
                 selected.endTime,
             });
@@ -749,13 +799,27 @@ const {
                   message:
                     `Your appointment with ${doctor.fullName} has been booked successfully for ${appointmentDate} at ${selected.startTime}.`,
                 },
+
                 manager,
               );
 
           return {
             appointment:
               savedAppointment,
+
             notification,
+
+            patientEmail:
+              patient.user.email,
+
+            patientName:
+              patient.user.name,
+
+            doctorName:
+              doctor.fullName,
+
+            appointmentTime:
+              `${selected.startTime} - ${selected.endTime}`,
           };
         }
 
@@ -764,8 +828,86 @@ const {
         );
       },
     );
+
+  // ============================================================
+  // SEND EMAIL AFTER TRANSACTION COMMITS
+  // ============================================================
+
+  try {
+    await this.emailService.sendEmail(
+      result.patientEmail,
+
+      'Appointment Booked',
+
+      `
+        <div
+          style="
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: auto;
+            padding: 20px;
+          "
+        >
+          <h2>Appointment Booked</h2>
+
+          <p>
+            Hello ${result.patientName ?? 'Patient'},
+          </p>
+
+          <p>
+            Your appointment has been
+            successfully booked.
+          </p>
+
+          <p>
+            <strong>Doctor:</strong>
+            ${result.doctorName}
+          </p>
+
+          <p>
+            <strong>Date:</strong>
+            ${appointmentDate}
+          </p>
+
+          <p>
+            <strong>Time:</strong>
+            ${result.appointmentTime}
+          </p>
+
+          <p>
+            <strong>Appointment ID:</strong>
+            #${result.appointment.id}
+          </p>
+
+          <p>
+            Thank you.
+          </p>
+        </div>
+      `,
+    );
+
+    console.log(
+      `Booking email sent successfully to ${result.patientEmail}`,
+    );
+  } catch (error) {
+    console.error(
+      `Appointment #${result.appointment.id} was booked successfully, but booking email failed:`,
+      error,
+    );
   }
 
+  // ============================================================
+  // RETURN SAME EXISTING RESPONSE STRUCTURE
+  // ============================================================
+
+  return {
+    appointment:
+      result.appointment,
+
+    notification:
+      result.notification,
+  };
+}
   // ============================================================
   // GENERATE WAVE SLOTS
   // ============================================================
@@ -996,508 +1138,666 @@ const {
   // PATIENT ONLY
   // ============================================================
 
-  async cancelAppointment(
-    appointmentId: number,
-    patientId: number,
-  ) {
-    return this.dataSource.transaction(
-      async (manager) => {
-        const appointmentRepository =
-          manager.getRepository(
+  // ============================================================
+// CANCEL APPOINTMENT
+// PATIENT ONLY
+// ============================================================
+
+async cancelAppointment(
+  appointmentId: number,
+  patientId: number,
+) {
+  return this.dataSource.transaction(
+    async (manager) => {
+      const appointmentRepository =
+        manager.getRepository(
+          appointment,
+        );
+
+      const appointmentEntity =
+        await appointmentRepository.findOne({
+          where: {
+            id: appointmentId,
+          },
+          relations: {
+            patient: {
+              user: true,
+            },
+            recurringAvailability:
+              true,
+          },
+        });
+
+      if (!appointmentEntity) {
+        throw new NotFoundException(
+          'Appointment not found',
+        );
+      }
+
+      if (
+        appointmentEntity.patient.id !==
+        patientId
+      ) {
+        throw new ForbiddenException(
+          'You can only cancel your own appointment',
+        );
+      }
+
+      if (
+        appointmentEntity.status ===
+        appointmentStatus.CANCELLED
+      ) {
+        throw new BadRequestException(
+          'Appointment is already cancelled',
+        );
+      }
+
+      const appointmentTime =
+        appointmentEntity
+          .slotStartTime ??
+        appointmentEntity
+          .recurringAvailability
+          .startTime;
+
+      const appointmentDateTime =
+        new Date(
+          `${appointmentEntity.appointmentDate}T${appointmentTime}`,
+        );
+
+      const difference =
+        appointmentDateTime.getTime() -
+        Date.now();
+
+      if (
+        difference <
+        30 * 60 * 1000
+      ) {
+        throw new BadRequestException(
+          'Appointments cannot be cancelled within 30 minutes',
+        );
+      }
+
+      appointmentEntity.status =
+        appointmentStatus.CANCELLED;
+
+      const cancelledAppointment =
+        await appointmentRepository.save(
+          appointmentEntity,
+        );
+
+      const notification =
+        await this.notificationService
+          .createAppointmentNotification(
+            {
+              patientId:
+                cancelledAppointment
+                  .patient.id,
+
+              appointmentId:
+                cancelledAppointment.id,
+
+              type:
+                NotificationType.APPOINTMENT_CANCELLED,
+
+              eventId:
+                `CANCELLATION_${cancelledAppointment.id}`,
+
+              title:
+                'Appointment Cancelled',
+
+              message:
+                `Your appointment scheduled on ${cancelledAppointment.appointmentDate} at ${appointmentTime} has been cancelled.`,
+            },
+            manager,
+          );
+
+      // ========================================================
+      // EMAIL NOTIFICATION
+      // Existing cancellation functionality is unchanged.
+      // Email failure will NOT affect cancellation.
+      // ========================================================
+
+      try {
+        await this.emailService.sendEmail(
+          cancelledAppointment.patient.user.email,
+
+          'Appointment Cancelled',
+
+          appointmentCancelledTemplate({
+            patientName:
+              cancelledAppointment.patient
+                .user.firstName ??
+              'Patient',
+
+            doctorName:
+              'Doctor',
+
+            date:
+              cancelledAppointment
+                .appointmentDate,
+
+            time:
+              appointmentTime,
+          }),
+        );
+      } catch (error) {
+        console.error(
+          `Appointment #${cancelledAppointment.id} was cancelled, but email notification failed:`,
+          error,
+        );
+      }
+
+      return {
+        appointment:
+          cancelledAppointment,
+
+        notification,
+      };
+    },
+  );
+}
+  // ============================================================
+  // RESCHEDULE APPOINTMENT
+  // PATIENT ONLY
+  // ============================================================
+
+// ============================================================
+// RESCHEDULE APPOINTMENT
+// PATIENT ONLY
+// ============================================================
+
+async rescheduleAppointment(
+  appointmentId: number,
+  patientId: number,
+  dto: RescheduleappointmentDto,
+) {
+  return this.dataSource.transaction(
+    async (manager) => {
+      const appointmentRepository =
+        manager.getRepository(
+          appointment,
+        );
+
+      const appointmentEntity =
+        await appointmentRepository.findOne({
+          where: {
+            id: appointmentId,
+          },
+
+          relations: {
+            patient: {
+              user: true,
+            },
+
+            doctor: true,
+
+            recurringAvailability:
+              true,
+          },
+        });
+
+      if (!appointmentEntity) {
+        throw new NotFoundException(
+          'Appointment not found',
+        );
+      }
+
+      if (
+        appointmentEntity.patient.id !==
+        patientId
+      ) {
+        throw new ForbiddenException(
+          'You can only reschedule your own appointment',
+        );
+      }
+
+      if (
+        appointmentEntity.status ===
+        appointmentStatus.CANCELLED
+      ) {
+        throw new BadRequestException(
+          'Cancelled appointment cannot be rescheduled',
+        );
+      }
+
+      const currentTime =
+        appointmentEntity
+          .slotStartTime ??
+        appointmentEntity
+          .recurringAvailability
+          .startTime;
+
+      const appointmentDateTime =
+        new Date(
+          `${appointmentEntity.appointmentDate}T${currentTime}`,
+        );
+
+      const difference =
+        appointmentDateTime.getTime() -
+        Date.now();
+
+      if (
+        difference <
+        30 * 60 * 1000
+      ) {
+        throw new BadRequestException(
+          'Appointments cannot be rescheduled within 30 minutes',
+        );
+      }
+
+      const {
+        availability,
+      } =
+        await this.resolveAvailability(
+          appointmentEntity.doctor.id,
+          dto.appointmentDate,
+          manager,
+        );
+
+      if (
+        availability.id !==
+        dto.availabilityId
+      ) {
+        throw new BadRequestException(
+          'Invalid availability selected',
+        );
+      }
+
+      if (
+        appointmentEntity
+          .recurringAvailability.id ===
+          dto.availabilityId &&
+        appointmentEntity.appointmentDate ===
+          dto.appointmentDate &&
+        (appointmentEntity
+          .slotStartTime ?? null) ===
+          (dto.slotStartTime ?? null)
+      ) {
+        throw new BadRequestException(
+          'Appointment is already booked for the same slot',
+        );
+      }
+
+      const bookingTime =
+        availability.schedulingType ===
+        SchedulingType.STREAM
+          ? availability.startTime
+          : dto.slotStartTime;
+
+      const requestedDateTime =
+        new Date(
+          `${dto.appointmentDate}T${bookingTime}`,
+        );
+
+      if (
+        requestedDateTime <=
+        new Date()
+      ) {
+        throw new BadRequestException(
+          'Appointment must be scheduled in the future',
+        );
+      }
+
+      // ==========================
+      // STREAM
+      // ==========================
+
+      if (
+        availability.schedulingType ===
+        SchedulingType.STREAM
+      ) {
+        await manager
+          .createQueryBuilder(
+            RecurringAvailability,
+            'availability',
+          )
+          .setLock(
+            'pessimistic_write',
+          )
+          .where(
+            'availability.id = :id',
+            {
+              id: availability.id,
+            },
+          )
+          .getOne();
+
+        const booked =
+          await manager.count(
             appointment,
+            {
+              where: {
+                recurringAvailability: {
+                  id: availability.id,
+                },
+
+                appointmentDate:
+                  dto.appointmentDate,
+
+                status:
+                  appointmentStatus.BOOKED,
+              },
+            },
           );
 
-        const appointmentEntity =
-          await appointmentRepository.findOne({
-            where: {
-              id: appointmentId,
-            },
-            relations: {
-              patient: true,
-              recurringAvailability:
-                true,
-            },
+        if (
+          booked >=
+          (availability.capacity ??
+            0)
+        ) {
+          const next =
+            await this.findNextAvailableStream(
+              appointmentEntity
+                .doctor.id,
+
+              dto.appointmentDate,
+
+              manager,
+            );
+
+          throw new BadRequestException({
+            message:
+              'Stream is full',
+
+            nextAvailable:
+              next,
           });
-
-        if (!appointmentEntity) {
-          throw new NotFoundException(
-            'Appointment not found',
-          );
         }
 
-        if (
-          appointmentEntity.patient.id !==
-          patientId
-        ) {
-          throw new ForbiddenException(
-            'You can only cancel your own appointment',
-          );
-        }
+        appointmentEntity
+          .recurringAvailability =
+          availability;
 
-        if (
-          appointmentEntity.status ===
-          appointmentStatus.CANCELLED
-        ) {
-          throw new BadRequestException(
-            'Appointment is already cancelled',
-          );
-        }
+        appointmentEntity
+          .appointmentDate =
+          dto.appointmentDate;
 
-        const appointmentTime =
-          appointmentEntity
-            .slotStartTime ??
-          appointmentEntity
-            .recurringAvailability
-            .startTime;
+        appointmentEntity
+          .slotStartTime = null;
 
-        const appointmentDateTime =
-          new Date(
-            `${appointmentEntity.appointmentDate}T${appointmentTime}`,
-          );
+        appointmentEntity
+          .slotEndTime = null;
 
-        const difference =
-          appointmentDateTime.getTime() -
-          Date.now();
+        appointmentEntity
+          .tokenNumber =
+          booked + 1;
 
-        if (
-          difference <
-          30 * 60 * 1000
-        ) {
-          throw new BadRequestException(
-            'Appointments cannot be cancelled within 30 minutes',
-          );
-        }
-
-        appointmentEntity.status =
-          appointmentStatus.CANCELLED;
-
-        const cancelledAppointment =
-          await appointmentRepository.save(
+        const savedAppointment =
+          await manager.save(
             appointmentEntity,
           );
+
+        // ==========================
+        // EXISTING DB NOTIFICATION
+        // ==========================
 
         const notification =
           await this.notificationService
             .createAppointmentNotification(
               {
                 patientId:
-                  cancelledAppointment
+                  savedAppointment
                     .patient.id,
 
                 appointmentId:
-                  cancelledAppointment.id,
+                  savedAppointment.id,
 
                 type:
-                  NotificationType.APPOINTMENT_CANCELLED,
+                  NotificationType.APPOINTMENT_RESCHEDULED,
 
                 eventId:
-                  `CANCELLATION_${cancelledAppointment.id}`,
+                  `RESCHEDULE_${savedAppointment.id}_${savedAppointment.appointmentDate}_STREAM`,
 
                 title:
-                  'Appointment Cancelled',
+                  'Appointment Rescheduled',
 
                 message:
-                  `Your appointment scheduled on ${cancelledAppointment.appointmentDate} at ${appointmentTime} has been cancelled.`,
+                  `Your appointment has been rescheduled to ${savedAppointment.appointmentDate} at ${availability.startTime}.`,
               },
+
               manager,
             );
 
+        // ==========================
+        // SENDGRID EMAIL
+        // ==========================
+
+        try {
+          await this.emailService.sendEmail(
+            savedAppointment.patient.user.email,
+
+            'Appointment Rescheduled',
+
+            appointmentRescheduledTemplate({
+              recipientName:
+                savedAppointment
+                  .patient
+                  .user
+                  .firstName ??
+                'Patient',
+
+              doctorName:
+                savedAppointment
+                  .doctor
+                  .fullName,
+
+              date:
+                savedAppointment
+                  .appointmentDate,
+
+              time:
+                availability.startTime,
+
+              reason:
+                'Appointment rescheduled by patient',
+            }),
+          );
+        } catch (error) {
+          console.error(
+            `Appointment #${savedAppointment.id} was rescheduled, but email notification failed:`,
+            error,
+          );
+        }
+
         return {
           appointment:
-            cancelledAppointment,
+            savedAppointment,
+
           notification,
         };
-      },
-    );
-  }
+      }
 
-  // ============================================================
-  // RESCHEDULE APPOINTMENT
-  // PATIENT ONLY
-  // ============================================================
+      // ==========================
+      // WAVE
+      // ==========================
 
-  async rescheduleAppointment(
-    appointmentId: number,
-    patientId: number,
-    dto: RescheduleappointmentDto,
-  ) {
-    return this.dataSource.transaction(
-      async (manager) => {
-        const appointmentRepository =
-          manager.getRepository(
+      if (
+        availability.schedulingType ===
+        SchedulingType.WAVE
+      ) {
+        if (!dto.slotStartTime) {
+          throw new BadRequestException(
+            'slotStartTime is required',
+          );
+        }
+
+        const slots =
+          this.generateWaveSlots(
+            availability.startTime,
+            availability.endTime,
+            availability.slotDuration!,
+            availability.bufferTime ??
+              0,
+          );
+
+        const selected =
+          slots.find(
+            (slot) =>
+              slot.startTime ===
+              dto.slotStartTime,
+          );
+
+        if (!selected) {
+          throw new BadRequestException(
+            'Invalid slot selected',
+          );
+        }
+
+        const booked =
+          await manager.count(
             appointment,
+            {
+              where: {
+                recurringAvailability: {
+                  id: availability.id,
+                },
+
+                appointmentDate:
+                  dto.appointmentDate,
+
+                slotStartTime:
+                  dto.slotStartTime,
+
+                status:
+                  appointmentStatus.BOOKED,
+              },
+            },
           );
 
-        const appointmentEntity =
-          await appointmentRepository.findOne({
-            where: {
-              id: appointmentId,
-            },
-            relations: {
-              patient: true,
-              doctor: true,
-              recurringAvailability:
-                true,
-            },
+        if (
+          booked >=
+          (availability.capacity ??
+            0)
+        ) {
+          const next =
+            await this.findNextAvailableStream(
+              appointmentEntity
+                .doctor.id,
+
+              dto.appointmentDate,
+
+              manager,
+            );
+
+          throw new BadRequestException({
+            message:
+              'Selected slot is full',
+
+            nextAvailable:
+              next,
           });
-
-        if (!appointmentEntity) {
-          throw new NotFoundException(
-            'Appointment not found',
-          );
         }
 
-        if (
-          appointmentEntity.patient.id !==
-          patientId
-        ) {
-          throw new ForbiddenException(
-            'You can only reschedule your own appointment',
+        appointmentEntity
+          .recurringAvailability =
+          availability;
+
+        appointmentEntity
+          .appointmentDate =
+          dto.appointmentDate;
+
+        appointmentEntity
+          .slotStartTime =
+          selected.startTime;
+
+        appointmentEntity
+          .slotEndTime =
+          selected.endTime;
+
+        appointmentEntity
+          .tokenNumber = null;
+
+        const savedAppointment =
+          await manager.save(
+            appointmentEntity,
           );
-        }
-
-        if (
-          appointmentEntity.status ===
-          appointmentStatus.CANCELLED
-        ) {
-          throw new BadRequestException(
-            'Cancelled appointment cannot be rescheduled',
-          );
-        }
-
-        const currentTime =
-          appointmentEntity
-            .slotStartTime ??
-          appointmentEntity
-            .recurringAvailability
-            .startTime;
-
-        const appointmentDateTime =
-          new Date(
-            `${appointmentEntity.appointmentDate}T${currentTime}`,
-          );
-
-        const difference =
-          appointmentDateTime.getTime() -
-          Date.now();
-
-        if (
-          difference <
-          30 * 60 * 1000
-        ) {
-          throw new BadRequestException(
-            'Appointments cannot be rescheduled within 30 minutes',
-          );
-        }
-
-        const {
-          availability,
-        } =
-          await this.resolveAvailability(
-            appointmentEntity.doctor.id,
-            dto.appointmentDate,
-            manager,
-          );
-
-        if (
-          availability.id !==
-          dto.availabilityId
-        ) {
-          throw new BadRequestException(
-            'Invalid availability selected',
-          );
-        }
-
-        if (
-          appointmentEntity
-            .recurringAvailability.id ===
-            dto.availabilityId &&
-          appointmentEntity.appointmentDate ===
-            dto.appointmentDate &&
-          (appointmentEntity
-            .slotStartTime ?? null) ===
-            (dto.slotStartTime ?? null)
-        ) {
-          throw new BadRequestException(
-            'Appointment is already booked for the same slot',
-          );
-        }
-
-        const bookingTime =
-          availability.schedulingType ===
-          SchedulingType.STREAM
-            ? availability.startTime
-            : dto.slotStartTime;
-
-        const requestedDateTime =
-          new Date(
-            `${dto.appointmentDate}T${bookingTime}`,
-          );
-
-        if (
-          requestedDateTime <=
-          new Date()
-        ) {
-          throw new BadRequestException(
-            'Appointment must be scheduled in the future',
-          );
-        }
 
         // ==========================
-        // STREAM
+        // EXISTING DB NOTIFICATION
         // ==========================
 
-        if (
-          availability.schedulingType ===
-          SchedulingType.STREAM
-        ) {
-          await manager
-            .createQueryBuilder(
-              RecurringAvailability,
-              'availability',
-            )
-            .setLock(
-              'pessimistic_write',
-            )
-            .where(
-              'availability.id = :id',
+        const notification =
+          await this.notificationService
+            .createAppointmentNotification(
               {
-                id: availability.id,
+                patientId:
+                  savedAppointment
+                    .patient.id,
+
+                appointmentId:
+                  savedAppointment.id,
+
+                type:
+                  NotificationType.APPOINTMENT_RESCHEDULED,
+
+                eventId:
+                  `RESCHEDULE_${savedAppointment.id}_${savedAppointment.appointmentDate}_${savedAppointment.slotStartTime}`,
+
+                title:
+                  'Appointment Rescheduled',
+
+                message:
+                  `Your appointment has been rescheduled to ${savedAppointment.appointmentDate} at ${savedAppointment.slotStartTime}.`,
               },
-            )
-            .getOne();
 
-          const booked =
-            await manager.count(
-              appointment,
-              {
-                where: {
-                  recurringAvailability: {
-                    id: availability.id,
-                  },
-                  appointmentDate:
-                    dto.appointmentDate,
-                  status:
-                    appointmentStatus.BOOKED,
-                },
-              },
+              manager,
             );
-
-          if (
-            booked >=
-            (availability.capacity ??
-              0)
-          ) {
-            const next =
-              await this.findNextAvailableStream(
-                appointmentEntity
-                  .doctor.id,
-                dto.appointmentDate,
-                manager,
-              );
-
-            throw new BadRequestException({
-              message:
-                'Stream is full',
-              nextAvailable:
-                next,
-            });
-          }
-
-          appointmentEntity
-            .recurringAvailability =
-            availability;
-
-          appointmentEntity
-            .appointmentDate =
-            dto.appointmentDate;
-
-          appointmentEntity
-            .slotStartTime = null;
-
-          appointmentEntity
-            .slotEndTime = null;
-
-          appointmentEntity
-            .tokenNumber =
-            booked + 1;
-
-          const savedAppointment =
-            await manager.save(
-              appointmentEntity,
-            );
-
-          const notification =
-            await this.notificationService
-              .createAppointmentNotification(
-                {
-                  patientId:
-                    savedAppointment
-                      .patient.id,
-
-                  appointmentId:
-                    savedAppointment.id,
-
-                  type:
-                    NotificationType.APPOINTMENT_RESCHEDULED,
-
-                  eventId:
-                    `RESCHEDULE_${savedAppointment.id}_${savedAppointment.appointmentDate}_STREAM`,
-
-                  title:
-                    'Appointment Rescheduled',
-
-                  message:
-                    `Your appointment has been rescheduled to ${savedAppointment.appointmentDate} at ${availability.startTime}.`,
-                },
-                manager,
-              );
-
-          return {
-            appointment:
-              savedAppointment,
-            notification,
-          };
-        }
 
         // ==========================
-        // WAVE
+        // SENDGRID EMAIL
         // ==========================
 
-        if (
-          availability.schedulingType ===
-          SchedulingType.WAVE
-        ) {
-          if (!dto.slotStartTime) {
-            throw new BadRequestException(
-              'slotStartTime is required',
-            );
-          }
+        try {
+          await this.emailService.sendEmail(
+            savedAppointment.patient.user.email,
 
-          const slots =
-            this.generateWaveSlots(
-              availability.startTime,
-              availability.endTime,
-              availability.slotDuration!,
-              availability.bufferTime ??
-                0,
-            );
+            'Appointment Rescheduled',
 
-          const selected =
-            slots.find(
-              (slot) =>
-                slot.startTime ===
-                dto.slotStartTime,
-            );
+            appointmentRescheduledTemplate({
+              recipientName:
+                savedAppointment
+                  .patient
+                  .user
+                  .firstName ??
+                'Patient',
 
-          if (!selected) {
-            throw new BadRequestException(
-              'Invalid slot selected',
-            );
-          }
+              doctorName:
+                savedAppointment
+                  .doctor
+                  .fullName,
 
-          const booked =
-            await manager.count(
-              appointment,
-              {
-                where: {
-                  recurringAvailability: {
-                    id: availability.id,
-                  },
-                  appointmentDate:
-                    dto.appointmentDate,
-                  slotStartTime:
-                    dto.slotStartTime,
-                  status:
-                    appointmentStatus.BOOKED,
-                },
-              },
-            );
+              date:
+                savedAppointment
+                  .appointmentDate,
 
-          if (
-            booked >=
-            (availability.capacity ??
-              0)
-          ) {
-            const next =
-              await this.findNextAvailableStream(
-                appointmentEntity
-                  .doctor.id,
-                dto.appointmentDate,
-                manager,
-              );
+              time:
+                `${selected.startTime} - ${selected.endTime}`,
 
-            throw new BadRequestException({
-              message:
-                'Selected slot is full',
-              nextAvailable:
-                next,
-            });
-          }
-
-          appointmentEntity
-            .recurringAvailability =
-            availability;
-
-          appointmentEntity
-            .appointmentDate =
-            dto.appointmentDate;
-
-          appointmentEntity
-            .slotStartTime =
-            selected.startTime;
-
-          appointmentEntity
-            .slotEndTime =
-            selected.endTime;
-
-          appointmentEntity
-            .tokenNumber = null;
-
-          const savedAppointment =
-            await manager.save(
-              appointmentEntity,
-            );
-
-          const notification =
-            await this.notificationService
-              .createAppointmentNotification(
-                {
-                  patientId:
-                    savedAppointment
-                      .patient.id,
-
-                  appointmentId:
-                    savedAppointment.id,
-
-                  type:
-                    NotificationType.APPOINTMENT_RESCHEDULED,
-
-                  eventId:
-                    `RESCHEDULE_${savedAppointment.id}_${savedAppointment.appointmentDate}_${savedAppointment.slotStartTime}`,
-
-                  title:
-                    'Appointment Rescheduled',
-
-                  message:
-                    `Your appointment has been rescheduled to ${savedAppointment.appointmentDate} at ${savedAppointment.slotStartTime}.`,
-                },
-                manager,
-              );
-
-          return {
-            appointment:
-              savedAppointment,
-            notification,
-          };
+              reason:
+                'Appointment rescheduled by patient',
+            }),
+          );
+        } catch (error) {
+          console.error(
+            `Appointment #${savedAppointment.id} was rescheduled, but email notification failed:`,
+            error,
+          );
         }
 
-        throw new BadRequestException(
-          'Invalid scheduling type',
-        );
-      },
-    );
-  }
+        return {
+          appointment:
+            savedAppointment,
+
+          notification,
+        };
+      }
+
+      throw new BadRequestException(
+        'Invalid scheduling type',
+      );
+    },
+  );
+}
 
   // ============================================================
   // FIND NEXT AVAILABLE STREAM
@@ -1852,92 +2152,192 @@ const {
   // ============================================================
 
   private async autoRescheduleAppointment(
-    appointmentEntity: appointment,
-    manager: EntityManager,
-  ): Promise<appointment> {
-    const nextSlot =
-      await this.findNextAvailableAppointmentSlot(
-        appointmentEntity.doctor.id,
-        appointmentEntity.appointmentDate,
-        manager,
+  appointmentEntity: appointment,
+  manager: EntityManager,
+): Promise<appointment> {
+  const nextSlot =
+    await this.findNextAvailableAppointmentSlot(
+      appointmentEntity.doctor.id,
+      appointmentEntity.appointmentDate,
+      manager,
+    );
+
+  if (!nextSlot) {
+    throw new BadRequestException(
+      `No available slot found for Appointment #${appointmentEntity.id}`,
+    );
+  }
+
+  // Save previous slot details
+  appointmentEntity.previousSlotId =
+    appointmentEntity.slotId;
+
+  appointmentEntity.previousSlotStartTime =
+    appointmentEntity.slotStartTime;
+
+  appointmentEntity.previousSlotEndTime =
+    appointmentEntity.slotEndTime;
+
+  // Move appointment
+  appointmentEntity.recurringAvailability =
+    nextSlot.availability;
+
+  appointmentEntity.appointmentDate =
+    nextSlot.appointmentDate;
+
+  appointmentEntity.slotStartTime =
+    nextSlot.slotStartTime;
+
+  appointmentEntity.slotEndTime =
+    nextSlot.slotEndTime;
+
+  appointmentEntity.rescheduledAutomatically =
+    true;
+
+  appointmentEntity.rescheduledAt =
+    new Date();
+
+  appointmentEntity.rescheduleReason =
+    'DOCTOR_SHRUNK_AVAILABILITY';
+
+  appointmentEntity.status =
+    appointmentStatus.BOOKED;
+
+  const savedAppointment =
+    await manager.save(
+      appointmentEntity,
+    );
+
+  const newTime =
+    savedAppointment.slotStartTime ??
+    savedAppointment
+      .recurringAvailability
+      .startTime;
+
+  // ============================================================
+  // EXISTING DATABASE NOTIFICATION
+  // ============================================================
+
+  await this.notificationService
+    .createAppointmentNotification(
+      {
+        patientId:
+          savedAppointment.patient.id,
+
+        appointmentId:
+          savedAppointment.id,
+
+        type:
+          NotificationType.APPOINTMENT_RESCHEDULED,
+
+        eventId:
+          `AUTO_RESCHEDULE_${savedAppointment.id}_${savedAppointment.appointmentDate}_${newTime}`,
+
+        title:
+          'Appointment Rescheduled',
+
+        message:
+          `Your appointment has been automatically rescheduled to ${savedAppointment.appointmentDate} at ${newTime} because of a change in the doctor's availability.`,
+      },
+      manager,
+    );
+
+  // ============================================================
+  // EMAIL NOTIFICATION
+  // ============================================================
+
+  try {
+    const patient =
+      await manager.findOne(
+        Patient,
+        {
+          where: {
+            id: savedAppointment.patient.id,
+          },
+
+          relations: {
+            user: true,
+          },
+        },
       );
 
-    if (!nextSlot) {
-      throw new BadRequestException(
-        `No available slot found for Appointment #${appointmentEntity.id}`,
+    if (
+      patient?.user?.email
+    ) {
+      await this.emailService.sendEmail(
+        patient.user.email,
+
+        'Appointment Automatically Rescheduled',
+
+        `
+          <div
+            style="
+              font-family: Arial, sans-serif;
+              max-width: 600px;
+              margin: auto;
+              padding: 20px;
+            "
+          >
+            <h2>
+              Appointment Automatically Rescheduled
+            </h2>
+
+            <p>
+              Hello
+              ${patient.user.name ?? 'Patient'},
+            </p>
+
+            <p>
+              Your appointment has been
+              automatically rescheduled because
+              of a change in the doctor's
+              availability.
+            </p>
+
+            <p>
+              <strong>Doctor:</strong>
+              ${savedAppointment.doctor.fullName}
+            </p>
+
+            <p>
+              <strong>New Date:</strong>
+              ${savedAppointment.appointmentDate}
+            </p>
+
+            <p>
+              <strong>New Time:</strong>
+              ${newTime}
+            </p>
+
+            <p>
+              <strong>Appointment ID:</strong>
+              #${savedAppointment.id}
+            </p>
+
+            <p>
+              Please note your new appointment time.
+            </p>
+          </div>
+        `,
+      );
+
+      console.log(
+        `Automatic reschedule email sent for Appointment #${savedAppointment.id} to ${patient.user.email}`,
+      );
+    } else {
+      console.warn(
+        `Appointment #${savedAppointment.id} was automatically rescheduled, but patient email was not found.`,
       );
     }
-
-    // Save previous slot details
-    appointmentEntity.previousSlotId =
-      appointmentEntity.slotId;
-
-    appointmentEntity.previousSlotStartTime =
-      appointmentEntity.slotStartTime;
-
-    appointmentEntity.previousSlotEndTime =
-      appointmentEntity.slotEndTime;
-
-    // Move appointment
-    appointmentEntity.recurringAvailability =
-      nextSlot.availability;
-
-    appointmentEntity.appointmentDate =
-      nextSlot.appointmentDate;
-
-    appointmentEntity.slotStartTime =
-      nextSlot.slotStartTime;
-
-    appointmentEntity.slotEndTime =
-      nextSlot.slotEndTime;
-
-    appointmentEntity.rescheduledAutomatically =
-      true;
-
-    appointmentEntity.rescheduledAt =
-      new Date();
-
-    appointmentEntity.rescheduleReason =
-      'DOCTOR_SHRUNK_AVAILABILITY';
-
-    appointmentEntity.status =
-      appointmentStatus.BOOKED;
-
-    const savedAppointment =
-      await manager.save(
-        appointmentEntity,
-      );
-
-    const newTime =
-      savedAppointment.slotStartTime ??
-      savedAppointment
-        .recurringAvailability
-        .startTime;
-
-    await this.notificationService
-      .createAppointmentNotification(
-        {
-          patientId:
-            savedAppointment.patient.id,
-
-          appointmentId:
-            savedAppointment.id,
-
-          type:
-            NotificationType.APPOINTMENT_RESCHEDULED,
-
-          eventId:
-            `AUTO_RESCHEDULE_${savedAppointment.id}_${savedAppointment.appointmentDate}_${newTime}`,
-
-          title:
-            'Appointment Rescheduled',
-
-          message:
-            `Your appointment has been automatically rescheduled to ${savedAppointment.appointmentDate} at ${newTime} because of a change in the doctor's availability.`,
-        },
-        manager,
-      );
-
-    return savedAppointment;
+  } catch (error) {
+    console.error(
+      `Appointment #${savedAppointment.id} was automatically rescheduled, but email notification failed:`,
+      error,
+    );
   }
+
+  return savedAppointment;
+
+}
+
 }

@@ -12,6 +12,7 @@ import { CustomAvailability } from '../custom-availability/entities/custom-avail
 import { ElasticSchedulingService } from './elastic-scheduling.service';
 
 import { NotificationModule } from '../notification/notification.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { NotificationModule } from '../notification/notification.module';
     ]),
 
     NotificationModule,
+    EmailModule,
   ],
 
   controllers: [

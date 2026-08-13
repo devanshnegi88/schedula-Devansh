@@ -13,6 +13,7 @@ import { RecurringAvailabilityModule } from './recurring-availability/recurring-
 import { CustomAvailabilityModule } from './custom-availability/custom-availability.module';
 import { AppointmentModule } from './appointment/appointment.module';
 import { NotificationModule } from './notification/notification.module';
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { NotificationModule } from './notification/notification.module';
     CustomAvailabilityModule,
     AppointmentModule,
     NotificationModule,
+    EmailModule,
   ],
   controllers: [AppController],
   providers: [AppService],
