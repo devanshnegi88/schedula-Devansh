@@ -397,4 +397,28 @@ async getPatientByUserId(userId: number) {
 
   return patient;
 }
+
+async getAppointmentReminder(
+  appointmentId: number,
+) {
+  const notification =
+    await this.notificationRepository.findOne({
+      where: {
+        appointmentId,
+        type:
+          NotificationType.APPOINTMENT_REMINDER,
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+
+  if (!notification) {
+    throw new NotFoundException(
+      'Appointment reminder not found',
+    );
+  }
+
+  return notification;
+}
 }
