@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 
 import { InjectRepository } from '@nestjs/typeorm';
+import { Patient } from '../patient/patient.entity';
+import { EmailService } from '../email/email.service';
 
 import {
   DataSource,
@@ -29,23 +31,35 @@ import { Doctor } from '../doctor/doctor.entity';
 
 import { Day } from '../enums/day.enum';
 
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '../notification/notification-type.enum';
+
 @Injectable()
 export class ElasticSchedulingService {
   constructor(
-    @InjectRepository(appointment)
-    private readonly appointmentRepository: Repository<appointment>,
+  @InjectRepository(appointment)
+  private readonly appointmentRepository: Repository<appointment>,
 
-    @InjectRepository(RecurringAvailability)
-    private readonly recurringAvailabilityRepository: Repository<RecurringAvailability>,
+  @InjectRepository(RecurringAvailability)
+  private readonly recurringAvailabilityRepository:
+    Repository<RecurringAvailability>,
 
-    @InjectRepository(CustomAvailability)
-    private readonly customAvailabilityRepository: Repository<CustomAvailability>,
+  @InjectRepository(CustomAvailability)
+  private readonly customAvailabilityRepository:
+    Repository<CustomAvailability>,
 
-    @InjectRepository(Doctor)
-    private readonly doctorRepository: Repository<Doctor>,
+  @InjectRepository(Doctor)
+  private readonly doctorRepository:
+    Repository<Doctor>,
 
-    private readonly dataSource: DataSource,
-  ) {}
+  private readonly dataSource: DataSource,
+
+  private readonly notificationService:
+    NotificationService,
+
+    private readonly emailService:
+  EmailService,
+) {}
 
 
 
@@ -589,25 +603,31 @@ public async autoRescheduleAppointment(
   appointmentEntity: appointment,
   manager: EntityManager,
   reservedSlots: Set<string>,
-): Promise<appointment>{
+): Promise<appointment> {
 
   const nextSlot =
-  await this.findNextAvailableAppointmentSlot(
-    appointmentEntity.doctor.id,
-    appointmentEntity.appointmentDate,
-    appointmentEntity.slotStartTime,
-    manager,
-    reservedSlots,
-  );
+    await this.findNextAvailableAppointmentSlot(
+      appointmentEntity.doctor.id,
+      appointmentEntity.appointmentDate,
+      appointmentEntity.slotStartTime,
+      manager,
+      reservedSlots,
+    );
 
   // =====================================
-  // No available slot found
-  // Cancel appointment
+  // NO AVAILABLE SLOT
+  // AUTOMATICALLY CANCEL APPOINTMENT
   // =====================================
 
   if (!nextSlot) {
 
-    // Preserve previous appointment details
+    const previousTime =
+      appointmentEntity.slotStartTime ??
+      appointmentEntity
+        .recurringAvailability
+        .startTime;
+
+    // Preserve previous slot details
     appointmentEntity.previousSlotId =
       appointmentEntity.slotId;
 
@@ -617,6 +637,7 @@ public async autoRescheduleAppointment(
     appointmentEntity.previousSlotEndTime =
       appointmentEntity.slotEndTime;
 
+    // Cancel appointment
     appointmentEntity.status =
       appointmentStatus.CANCELLED;
 
@@ -629,16 +650,157 @@ public async autoRescheduleAppointment(
     appointmentEntity.rescheduleReason =
       'NO_AVAILABLE_SLOT_FOUND';
 
-    return await manager.save(
-      appointmentEntity,
-    );
+    const cancelledAppointment =
+      await manager.save(
+        appointmentEntity,
+      );
 
+    // =====================================
+    // EXISTING DATABASE NOTIFICATION
+    // =====================================
+
+    await this.notificationService
+      .createAppointmentNotification(
+        {
+          patientId:
+            cancelledAppointment.patient.id,
+
+          appointmentId:
+            cancelledAppointment.id,
+
+          type:
+            NotificationType.APPOINTMENT_CANCELLED,
+
+          eventId:
+            `AUTO_CANCELLATION_${cancelledAppointment.id}_${cancelledAppointment.appointmentDate}_${previousTime}`,
+
+          title:
+            'Appointment Cancelled',
+
+          message:
+            `Your appointment scheduled on ${cancelledAppointment.appointmentDate} at ${previousTime} has been cancelled because no alternative slot was available after the doctor's availability changed.`,
+        },
+
+        manager,
+      );
+
+    // =====================================
+    // AUTOMATIC CANCELLATION EMAIL
+    // =====================================
+
+    try {
+
+      const patient =
+        await manager.findOne(
+          Patient,
+          {
+            where: {
+              id:
+                cancelledAppointment
+                  .patient.id,
+            },
+
+            relations: {
+              user: true,
+            },
+          },
+        );
+
+      if (
+        patient?.user?.email
+      ) {
+
+        await this.emailService.sendEmail(
+          patient.user.email,
+
+          'Appointment Automatically Cancelled',
+
+          `
+            <div
+              style="
+                font-family: Arial, sans-serif;
+                max-width: 600px;
+                margin: auto;
+                padding: 20px;
+              "
+            >
+
+              <h2>
+                Appointment Automatically Cancelled
+              </h2>
+
+              <p>
+                Hello
+                ${patient.user.name ?? 'Patient'},
+              </p>
+
+              <p>
+                Unfortunately, your appointment
+                has been automatically cancelled
+                because no alternative appointment
+                slot was available after the
+                doctor's availability changed.
+              </p>
+
+              <p>
+                <strong>Doctor:</strong>
+                ${cancelledAppointment.doctor.fullName}
+              </p>
+
+              <p>
+                <strong>Date:</strong>
+                ${cancelledAppointment.appointmentDate}
+              </p>
+
+              <p>
+                <strong>Previous Time:</strong>
+                ${previousTime}
+              </p>
+
+              <p>
+                <strong>Appointment ID:</strong>
+                #${cancelledAppointment.id}
+              </p>
+
+              <p>
+                Please book another available
+                appointment slot.
+              </p>
+
+            </div>
+          `,
+        );
+
+        console.log(
+          `Automatic cancellation email sent for Appointment #${cancelledAppointment.id} to ${patient.user.email}`,
+        );
+
+      } else {
+
+        console.warn(
+          `Appointment #${cancelledAppointment.id} was automatically cancelled, but patient email was not found.`,
+        );
+
+      }
+
+    } catch (error) {
+
+      console.error(
+        `Appointment #${cancelledAppointment.id} was automatically cancelled, but email notification failed:`,
+        error,
+      );
+
+    }
+
+    return cancelledAppointment;
   }
 
   // =====================================
-  // Preserve previous appointment details
+  // REPLACEMENT SLOT FOUND
+  // AUTOMATIC RESCHEDULE
   // =====================================
 
+  // Preserve previous appointment details
   appointmentEntity.previousSlotId =
     appointmentEntity.slotId;
 
@@ -648,45 +810,187 @@ public async autoRescheduleAppointment(
   appointmentEntity.previousSlotEndTime =
     appointmentEntity.slotEndTime;
 
-  // =====================================
-// Update appointment
-// =====================================
-
+  // Reserve the selected slot
   if (nextSlot.slotStartTime) {
+
     reservedSlots.add(
       `${nextSlot.appointmentDate}_${nextSlot.slotStartTime}`,
     );
+
   }
 
-appointmentEntity.recurringAvailability =
-  nextSlot.availability;
+  // Update appointment
+  appointmentEntity.recurringAvailability =
+    nextSlot.availability;
 
-appointmentEntity.appointmentDate =
-  nextSlot.appointmentDate;
+  appointmentEntity.appointmentDate =
+    nextSlot.appointmentDate;
 
-appointmentEntity.slotStartTime =
-  nextSlot.slotStartTime;
+  appointmentEntity.slotStartTime =
+    nextSlot.slotStartTime;
 
-appointmentEntity.slotEndTime =
-  nextSlot.slotEndTime;
+  appointmentEntity.slotEndTime =
+    nextSlot.slotEndTime;
 
-// Changed
-appointmentEntity.status =
-  appointmentStatus.RESCHEDULED;
+  appointmentEntity.status =
+    appointmentStatus.RESCHEDULED;
 
-appointmentEntity.rescheduledAutomatically =
-  true;
+  appointmentEntity.rescheduledAutomatically =
+    true;
 
-appointmentEntity.rescheduledAt =
-  new Date();
+  appointmentEntity.rescheduledAt =
+    new Date();
 
-appointmentEntity.rescheduleReason =
-  'DOCTOR_SHRUNK_AVAILABILITY';
+  appointmentEntity.rescheduleReason =
+    'DOCTOR_SHRUNK_AVAILABILITY';
 
-return await manager.save(
-  appointmentEntity,
-);
+  const savedAppointment =
+    await manager.save(
+      appointmentEntity,
+    );
 
+  // =====================================
+  // EXISTING DATABASE NOTIFICATION
+  // =====================================
+
+  const newTime =
+    savedAppointment.slotStartTime ??
+    savedAppointment
+      .recurringAvailability
+      .startTime;
+
+  await this.notificationService
+    .createAppointmentNotification(
+      {
+        patientId:
+          savedAppointment.patient.id,
+
+        appointmentId:
+          savedAppointment.id,
+
+        type:
+          NotificationType.APPOINTMENT_RESCHEDULED,
+
+        eventId:
+          `AUTO_RESCHEDULE_${savedAppointment.id}_${savedAppointment.appointmentDate}_${newTime}`,
+
+        title:
+          'Appointment Rescheduled',
+
+        message:
+          `Your appointment has been automatically rescheduled to ${savedAppointment.appointmentDate} at ${newTime} because of a change in the doctor's availability.`,
+      },
+
+      manager,
+    );
+
+  // =====================================
+  // AUTOMATIC RESCHEDULE EMAIL
+  // =====================================
+
+  try {
+
+    const patient =
+      await manager.findOne(
+        Patient,
+        {
+          where: {
+            id:
+              savedAppointment
+                .patient.id,
+          },
+
+          relations: {
+            user: true,
+          },
+        },
+      );
+
+    if (
+      patient?.user?.email
+    ) {
+
+      await this.emailService.sendEmail(
+        patient.user.email,
+
+        'Appointment Automatically Rescheduled',
+
+        `
+          <div
+            style="
+              font-family: Arial, sans-serif;
+              max-width: 600px;
+              margin: auto;
+              padding: 20px;
+            "
+          >
+
+            <h2>
+              Appointment Automatically Rescheduled
+            </h2>
+
+            <p>
+              Hello
+              ${patient.user.name ?? 'Patient'},
+            </p>
+
+            <p>
+              Your appointment has been
+              automatically rescheduled because
+              of a change in the doctor's
+              availability.
+            </p>
+
+            <p>
+              <strong>Doctor:</strong>
+              ${savedAppointment.doctor.fullName}
+            </p>
+
+            <p>
+              <strong>New Date:</strong>
+              ${savedAppointment.appointmentDate}
+            </p>
+
+            <p>
+              <strong>New Time:</strong>
+              ${newTime}
+            </p>
+
+            <p>
+              <strong>Appointment ID:</strong>
+              #${savedAppointment.id}
+            </p>
+
+            <p>
+              Please note your new appointment time.
+            </p>
+
+          </div>
+        `,
+      );
+
+      console.log(
+        `Automatic reschedule email sent for Appointment #${savedAppointment.id} to ${patient.user.email}`,
+      );
+
+    } else {
+
+      console.warn(
+        `Appointment #${savedAppointment.id} was automatically rescheduled, but patient email was not found.`,
+      );
+
+    }
+
+  } catch (error) {
+
+    console.error(
+      `Appointment #${savedAppointment.id} was automatically rescheduled, but email notification failed:`,
+      error,
+    );
+
+  }
+
+  return savedAppointment;
 }
 
 public async handleAvailabilityShrink(
