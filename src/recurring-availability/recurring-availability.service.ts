@@ -343,11 +343,10 @@ return savedAvailabilities;}
     return availability;
   }
 
- async update(
+async update(
   id: number,
   dto: UpdateRecurringAvailabilityDto,
 ) {
-
   const availability =
     await this.recurringRepository.findOne({
       where: {
@@ -361,89 +360,89 @@ return savedAvailabilities;}
     );
   }
 
-  const oldStartTime =
-    availability.startTime;
-
-  const oldEndTime =
-    availability.endTime;
-
   const newStartTime =
     dto.startTime ??
-    oldStartTime;
+    availability.startTime;
 
   const newEndTime =
     dto.endTime ??
-    oldEndTime;
+    availability.endTime;
 
-  // ============================
-  // Detect Shrink
-  // ============================
-
-  const isShrink =
-    newStartTime > oldStartTime ||
-    newEndTime < oldEndTime;
-
-  // ============================
-  // Detect Expand
-  // ============================
-
-  const isExpand =
-    newStartTime < oldStartTime ||
-    newEndTime > oldEndTime;
-
-  // ============================
-  // SHRINK
-  // ============================
-
-  if (isShrink) {
-
-    return this.shrinkAvailability(
-      id,
-      {
-        startTime: newStartTime,
-        endTime: newEndTime,
-      },
+  if (newStartTime >= newEndTime) {
+    throw new BadRequestException(
+      'Start time must be before end time',
     );
-
   }
 
-  // ============================
-  // EXPAND
-  // ============================
+  // ============================================================
+  // UPDATE DAY FROM DAYS ARRAY
+  // ============================================================
 
-  if (isExpand) {
+  if (dto.days !== undefined) {
+    if (dto.days.length !== 1) {
+      throw new BadRequestException(
+        'Exactly one day is required when updating an availability',
+      );
+    }
 
-    return this.expandAvailability(
-      id,
-      {
-        startTime: newStartTime,
-        endTime: newEndTime,
-      },
-    );
-
+    availability.day = dto.days[0];
   }
 
-  // ============================
-  // NORMAL UPDATE
-  // ============================
+  // ============================================================
+  // UPDATE OTHER AVAILABILITY FIELDS
+  // ============================================================
 
-  Object.assign(
-    availability,
-    dto,
-  );
+  if (dto.startTime !== undefined) {
+    availability.startTime =
+      dto.startTime;
+  }
+
+  if (dto.endTime !== undefined) {
+    availability.endTime =
+      dto.endTime;
+  }
+
+  if (dto.schedulingType !== undefined) {
+    availability.schedulingType =
+      dto.schedulingType;
+  }
+
+  if (dto.capacity !== undefined) {
+    availability.capacity =
+      dto.capacity;
+  }
+
+  if (dto.slotDuration !== undefined) {
+    availability.slotDuration =
+      dto.slotDuration;
+  }
+
+  if (dto.bufferTime !== undefined) {
+    availability.bufferTime =
+      dto.bufferTime;
+  }
+
+  if (dto.recurring !== undefined) {
+    availability.recurring =
+      dto.recurring;
+  }
 
   const updated =
     await this.recurringRepository.save(
       availability,
     );
 
+  // ============================================================
+  // WAVE SLOTS
+  // ============================================================
+
   if (
     updated.schedulingType ===
     SchedulingType.WAVE
   ) {
-
     return {
       ...updated,
+
       slots:
         this.appointmentService.generateWaveSlots(
           updated.startTime,
@@ -452,11 +451,9 @@ return savedAvailabilities;}
           updated.bufferTime ?? 0,
         ),
     };
-
   }
 
   return updated;
-
 }
 
   async shrinkAvailability(
