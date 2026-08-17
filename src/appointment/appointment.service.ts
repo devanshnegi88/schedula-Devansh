@@ -461,6 +461,29 @@ export class appointmentService {
           appointmentDateTime <=
           new Date()
         ) {
+          console.log('========== BOOKING TIME DEBUG ==========');
+console.log('appointmentDate:', appointmentDate);
+console.log('bookingTime:', bookingTime);
+console.log(
+  'appointmentDateTime:',
+  appointmentDateTime.toString(),
+);
+console.log(
+  'appointmentDateTime ISO:',
+  appointmentDateTime.toISOString(),
+);
+console.log(
+  'current time:',
+  new Date().toString(),
+);
+console.log(
+  'current ISO:',
+  new Date().toISOString(),
+);
+console.log(
+  'is past:',
+  appointmentDateTime <= new Date(),
+);
           throw new BadRequestException(
             'Appointment must be scheduled in the future',
           );
