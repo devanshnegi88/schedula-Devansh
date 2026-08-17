@@ -67,7 +67,7 @@ import { AppointmentReminderModule } from './appointment-reminder/appointment-re
 
         autoLoadEntities: true,
 
-        synchronize: true,
+        synchronize: false,
 
         logging: true,
 
