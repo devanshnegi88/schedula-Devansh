@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import {
+  ConfigModule,
+  ConfigService,
+} from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AppController } from './app.controller';
@@ -15,24 +18,57 @@ import { AppointmentModule } from './appointment/appointment.module';
 import { NotificationModule } from './notification/notification.module';
 import { EmailModule } from './email/email.module';
 
+
+import { ScheduleModule } from '@nestjs/schedule';
+
+import { AppointmentReminderModule } from './appointment-reminder/appointment-reminder.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
 
+    ScheduleModule.forRoot(),
+
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
+
+      useFactory: (
+        config: ConfigService,
+      ) => ({
         type: 'postgres',
-        host: config.getOrThrow('DATABASE_HOST'),
-        port: Number(config.getOrThrow('DATABASE_PORT')),
-        username: config.getOrThrow('DATABASE_USER'),
-        password: config.getOrThrow('DATABASE_PASSWORD'),
-        database: config.getOrThrow('DATABASE_NAME'),
+
+        host:
+          config.getOrThrow(
+            'DATABASE_HOST',
+          ),
+
+        port: Number(
+          config.getOrThrow(
+            'DATABASE_PORT',
+          ),
+        ),
+
+        username:
+          config.getOrThrow(
+            'DATABASE_USER',
+          ),
+
+        password:
+          config.getOrThrow(
+            'DATABASE_PASSWORD',
+          ),
+
+        database:
+          config.getOrThrow(
+            'DATABASE_NAME',
+          ),
 
         autoLoadEntities: true,
-        synchronize: true,
+
+        synchronize: false,
+
         logging: true,
 
         ssl: {
@@ -50,8 +86,16 @@ import { EmailModule } from './email/email.module';
     AppointmentModule,
     NotificationModule,
     EmailModule,
+
+    AppointmentReminderModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
+
+  controllers: [
+    AppController,
+  ],
+
+  providers: [
+    AppService,
+  ],
 })
-export class AppModule { }
+export class AppModule {}

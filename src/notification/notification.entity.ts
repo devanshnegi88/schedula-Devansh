@@ -24,10 +24,11 @@ export class Notification {
   appointmentId: number;
 
   @Column({
-    type: 'enum',
-    enum: NotificationType,
-  })
-  type: NotificationType;
+  type: 'enum',
+  enum: NotificationType,
+  enumName: 'notifications_type_enum',
+})
+type: NotificationType;
 
   @Column()
   title: string;
